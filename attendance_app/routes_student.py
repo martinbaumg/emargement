@@ -12,7 +12,7 @@ from app import app
 from csrf import check_csrf, generate_csrf
 from db import get_db
 from layout import render
-from lesson_utils import _time_bounds, looks_like_person_name, merge_contiguous_lessons
+from lesson_utils import _time_bounds, merge_contiguous_lessons, short_teacher_name, teacher_names
 from pass_session import LIVE_SESSIONS, current_pass_session, fetch_events_cached, week_fetched
 
 # ---------------------------------------------------------------- student side
@@ -145,7 +145,7 @@ def lessons():
     excluded_ids, excluded_titles = _exclusions(get_db(), username)
     for e in events:
         e["time_label"] = e["time"].replace("H", ":").replace("-", " – ")
-        e["teacher"] = " / ".join([t for t in e["details"] if looks_like_person_name(t)][:2])
+        e["teacher"] = " / ".join(teacher_names([e]))
         e["always_excluded"] = e["title"] in excluded_titles
         e["excluded"] = e["always_excluded"] or e["id"] in excluded_ids
     excluded_count = sum(1 for e in events if e["excluded"])
@@ -234,7 +234,18 @@ def lessons():
             (quelques secondes).</p>
         </div>
         {% elif not days %}
-        <div class="fr-alert fr-alert--info fr-alert--sm fr-mb-3w"><p>Aucun cours dans PASS pour cette semaine.</p></div>
+        <div class="fr-alert fr-alert--warning fr-alert--sm fr-mb-3w">
+            <p><strong>Aucun cours n'a pu être chargé depuis PASS pour cette semaine.</strong></p>
+            <p class="fr-mt-1w">Si vous avez bien des cours, les préférences de votre agenda PASS masquent
+            probablement leurs détails. Pour les afficher :</p>
+            <ol class="fr-mt-1w">
+                <li>sur PASS, ouvrez l'<strong>Agenda</strong> et cliquez sur <strong>Préférences</strong>, en haut à droite ;</li>
+                <li>dans <strong>Détails affichés</strong>, cochez toutes les cases : Heures, Description,
+                Ressources, Formateurs, Projets et Organismes ;</li>
+                <li>cliquez sur <strong>Valider</strong> ;</li>
+                <li>revenez ici et cliquez sur « Actualiser depuis PASS ».</li>
+            </ol>
+        </div>
         {% endif %}
         {% if days %}
         <div class="fr-tabs">
@@ -467,16 +478,17 @@ def profile():
             return redirect(url_for("profile"))
         db.execute(
             "INSERT INTO profiles (owner_username, nom, prenom, formation, taf, campus, apprentissage, ue_table, "
-            "show_total_hours) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "show_total_hours, show_teacher_names) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(owner_username) DO UPDATE SET nom=excluded.nom, prenom=excluded.prenom, "
             "formation=excluded.formation, taf=excluded.taf, campus=excluded.campus, "
             "apprentissage=excluded.apprentissage, ue_table=excluded.ue_table, "
-            "show_total_hours=excluded.show_total_hours",
+            "show_total_hours=excluded.show_total_hours, show_teacher_names=excluded.show_teacher_names",
             (username, request.form["nom"].strip(), request.form["prenom"].strip(),
              request.form["formation"].strip(), request.form["taf"].strip(), request.form["campus"].strip(),
              1, request.form.get("ue_table", "").strip(),
-             1 if request.form.get("show_total_hours") else 0),
+             1 if request.form.get("show_total_hours") else 0,
+             1 if request.form.get("show_teacher_names") else 0),
         )
         db.commit()
         session["_flash"] = "Profil enregistré."
@@ -487,7 +499,8 @@ def profile():
         p = dict(row)
     else:
         p = {"nom": "", "prenom": "", "formation": "", "taf": "",
-             "campus": "BREST", "apprentissage": 1, "ue_table": "", "show_total_hours": 1}
+             "campus": "BREST", "apprentissage": 1, "ue_table": "", "show_total_hours": 1,
+             "show_teacher_names": 1}
         try:
             dossier = ps.fetch_dossier(s, username=username)
         except Exception:
@@ -546,6 +559,12 @@ def profile():
                     {{ 'checked' if p.show_total_hours else '' }}>
                 <label class="fr-toggle__label" for="show_total_hours"
                     data-fr-checked-label="Rempli" data-fr-unchecked-label="Vide">Remplir le total des heures de formation sur le PDF</label>
+            </div>
+            <div class="fr-toggle fr-mb-3w">
+                <input type="checkbox" class="fr-toggle__input" id="show_teacher_names" name="show_teacher_names" value="1"
+                    {{ 'checked' if p.show_teacher_names else '' }}>
+                <label class="fr-toggle__label" for="show_teacher_names"
+                    data-fr-checked-label="Rempli" data-fr-unchecked-label="Vide">Remplir le nom des intervenants sur le PDF</label>
             </div>
             <ul class="fr-btns-group fr-btns-group--inline-md">
                 <li><button type=submit class="fr-btn">Enregistrer</button></li>
@@ -625,7 +644,8 @@ def export_pdf():
         # both used to surface as the same misleading "Aucun cours cette semaine."
         session["_flash"] = "Aucun cours cette semaine." if not fetched_count else (
             f"{fetched_count} cours récupérés depuis PASS, mais aucun n'a d'horaire exploitable — "
-            "feuille d'émargement impossible à générer. Essayez « Actualiser depuis PASS »."
+            "feuille d'émargement impossible à générer. Dans l'agenda PASS, ouvrez « Préférences », "
+            "cochez toutes les cases de « Détails affichés », validez, puis cliquez sur « Actualiser depuis PASS »."
         )
         return redirect(url_for("lessons", week=week_offset))
 
@@ -672,7 +692,8 @@ def export_pdf():
                 code_ue = code
                 break
 
-        teacher_name = " / ".join([t for t in first["details"] if looks_like_person_name(t)][:2])
+        teacher_name = (" / ".join(short_teacher_name(n) for n in teacher_names(group))
+                        if profile_dict.get("show_teacher_names", 1) else "")
 
         lessons_for_pdf.append({
             "date_label": d.strftime('%d/%m/%Y'),

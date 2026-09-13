@@ -56,9 +56,9 @@ def fetch_events_cached(s: requests.Session, username: str, force: bool = False,
     if not force and not bootstrap:
         return [
             {"id": r["lesson_id"], "date": r["date"], "time": r["time"], "title": r["title"],
-             "details": json.loads(r["details_json"])}
+             "details": json.loads(r["details_json"]), "teachers": json.loads(r["teachers_json"])}
             for r in db.execute(
-                "SELECT lesson_id, date, time, title, details_json FROM lessons_cache "
+                "SELECT lesson_id, date, time, title, details_json, teachers_json FROM lessons_cache "
                 "WHERE owner_username=? AND date BETWEEN ? AND ? ORDER BY date, time",
                 (username, week_start, week_end),
             )
@@ -112,15 +112,30 @@ def current_pass_session() -> requests.Session | None:
     row = db.execute("SELECT * FROM live_sessions WHERE token=?", (token,)).fetchone()
     if not row:
         return None
+    stored = json.loads(row["cookies_json"])
+    if isinstance(stored, dict):
+        # Old name->value format (see persist_live_session): can't be restored reliably,
+        # so treat it like no session and send the student back to the login form.
+        return None
     s = requests.Session()
     s.headers.update({"User-Agent": "Mozilla/5.0"})
-    s.cookies = requests.utils.cookiejar_from_dict(json.loads(row["cookies_json"]))
+    for c in stored:
+        s.cookies.set(c["name"], c["value"], domain=c["domain"], path=c["path"],
+                      secure=c["secure"], expires=c["expires"])
     LIVE_SESSIONS[token] = s
     return s
 
 
 def persist_live_session(db, token: str, username: str, s: requests.Session) -> None:
-    cookies_json = json.dumps(requests.utils.dict_from_cookiejar(s.cookies))
+    """Every cookie with its domain and path, not a flat name->value dict: restoring such a
+    dict created domain-less cookies that PASS's own Set-Cookie then duplicated instead of
+    replacing, so after a restart the classic-ASP agenda got the stale ASPSESSIONID and
+    answered « Session variable does not exists »."""
+    cookies_json = json.dumps([
+        {"name": c.name, "value": c.value, "domain": c.domain, "path": c.path,
+         "secure": c.secure, "expires": c.expires}
+        for c in s.cookies
+    ])
     db.execute(
         "INSERT INTO live_sessions (token, owner_username, cookies_json, created_at) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(token) DO UPDATE SET cookies_json=excluded.cookies_json",

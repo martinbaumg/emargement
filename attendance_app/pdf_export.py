@@ -196,7 +196,7 @@ def build_pdf(profile: dict, week_start: str, week_end: str, week_number: str, l
             "Signature\nétudiant", "A cocher si\nabsence\njustifiée"]
     rows = [cols]
     for lesson in lessons:
-        pause_min = lesson.get("pause_min") or ""
+        pause_min = lesson.get("pause_min") or "-"
         hours = lesson.get("duration_hours")
         hours_label = format_hours(hours) if hours is not None else ""
         rows.append([

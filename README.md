@@ -23,7 +23,24 @@ compte. La feuille doit de toute façon être signée à la main, donc tout ce c
 - dépendance `qrcode`.
 
 Dans le PDF, les colonnes « Signature intervenant » et « Signature étudiant » sont conservées mais
-laissées vides. Le nom de l'intervenant reste pré-rempli depuis PASS.
+laissées vides. Le nom de l'intervenant reste pré-rempli depuis PASS (voir ci-dessous).
+
+### Nom des intervenants
+
+Les vues de l'agenda PASS (Tableau, Semaine…) n'indiquent pas les intervenants. Ils ne figurent
+que dans la fiche détaillée d'une séance, celle qui s'ouvre au survol de l'icône 📁
+(`Eplug/Agenda/Eve-Det.asp`). « Actualiser depuis PASS » charge donc cette fiche pour chaque
+séance de la semaine et en retient la liste « Formateur(s) », affichée sur la page des cours et
+dans la colonne « Nom intervenant » du PDF. La liste des apprenants, présente dans la même fiche,
+n'est pas conservée.
+
+Sur le PDF, les noms sont abrégés en « NOM P. » (« BAUMGAERTNER Martin » devient
+« BAUMGAERTNER M. », « Pierre-Antoine » donne « P.-A. ») ; la page des cours affiche le nom
+complet.
+
+Dans « Profil », l'interrupteur « Remplir le nom des intervenants sur le PDF » permet de laisser la
+colonne « Nom intervenant » vide. Il est activé par défaut ; les noms restent affichés sur la page
+des cours dans tous les cas.
 
 ### Exclure des séances du PDF
 
@@ -69,7 +86,9 @@ défaut.
 ## Mise à jour d'une installation existante
 
 La base SQLite est migrée automatiquement au démarrage : ajout des tables `lesson_exclusions` et
-`title_exclusions`, et de la colonne `profiles.show_total_hours`. Les anciennes tables de signature
+`title_exclusions`, et des colonnes `profiles.show_total_hours`, `profiles.show_teacher_names` et
+`lessons_cache.teachers_json`
+(les intervenants apparaissent après le prochain « Actualiser depuis PASS »). Les anciennes tables de signature
 (`signatures`, `student_signatures`, `teacher_links`, `lesson_absences`…) ne sont ni lues ni
 supprimées : les signatures déjà enregistrées restent dans le fichier `attendance.db`.
 

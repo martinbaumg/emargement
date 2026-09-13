@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS lessons_cache (
     time TEXT NOT NULL,
     title TEXT NOT NULL,
     details_json TEXT NOT NULL,
+    teachers_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (lesson_id, owner_username)
 );
 -- Freshness marker for the last live PASS agenda fetch per student, backing
@@ -41,7 +42,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     campus TEXT NOT NULL DEFAULT '',
     apprentissage INTEGER NOT NULL DEFAULT 0,
     ue_table TEXT NOT NULL DEFAULT '',
-    show_total_hours INTEGER NOT NULL DEFAULT 1
+    show_total_hours INTEGER NOT NULL DEFAULT 1,
+    show_teacher_names INTEGER NOT NULL DEFAULT 1
 );
 -- Sessions the student left off the PDF (e.g. « Travail Autonomie » slots, which need
 -- no signature). Still listed on /lessons, only skipped by export_pdf.
@@ -97,6 +99,25 @@ def _migrate_profiles_show_total_hours(db):
     db.commit()
 
 
+def _migrate_profiles_show_teacher_names(db):
+    """Same for the "Nom intervenant" PDF switch, on by default."""
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(profiles)")}
+    if not cols or "show_teacher_names" in cols:
+        return
+    db.execute("ALTER TABLE profiles ADD COLUMN show_teacher_names INTEGER NOT NULL DEFAULT 1")
+    db.commit()
+
+
+def _migrate_lessons_cache_teachers(db):
+    """Same for the trainers list read from each event's PASS popup. Rows cached before
+    stay at '[]' until the next « Actualiser depuis PASS »."""
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(lessons_cache)")}
+    if not cols or "teachers_json" in cols:
+        return
+    db.execute("ALTER TABLE lessons_cache ADD COLUMN teachers_json TEXT NOT NULL DEFAULT '[]'")
+    db.commit()
+
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -108,6 +129,8 @@ def get_db():
         g.db.commit()
         _migrate_events_cache_meta(g.db)
         _migrate_profiles_show_total_hours(g.db)
+        _migrate_profiles_show_teacher_names(g.db)
+        _migrate_lessons_cache_teachers(g.db)
     return g.db
 
 
@@ -124,4 +147,6 @@ def init_db():
     conn.commit()
     _migrate_events_cache_meta(conn)
     _migrate_profiles_show_total_hours(conn)
+    _migrate_profiles_show_teacher_names(conn)
+    _migrate_lessons_cache_teachers(conn)
     conn.close()

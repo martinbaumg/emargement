@@ -358,13 +358,28 @@ def force_agenda_view(s: requests.Session, r: requests.Response, view: str, user
     return r2.text
 
 
+ASP_SESSION_LOST_MARKER = "Session variable does not exists"
+
+
+def check_asp_session(text: str) -> None:
+    """The classic-ASP side answers a lost session with a 200 "Erreur" page reading
+    « Session variable does not exists. » — check_session_alive() doesn't catch it (the
+    ASP.NET side is still fine), and the page holds no event, so without this it reads as
+    an empty week and gets marked fetched as one."""
+    if ASP_SESSION_LOST_MARKER in text:
+        raise RuntimeError("Session PASS (agenda) perdue — reconnectez-vous.")
+
+
 def fetch_agenda_html(s: requests.Session, agenda_url: str, username: str | None = None,
                       view: str | None = AGENDA_VIEW, num_dat: str | None = None) -> str:
     r = s.get(agenda_url, timeout=15)
     r.raise_for_status()
+    check_asp_session(r.text)
     if not view:
         return r.text
-    return force_agenda_view(s, r, view, username, num_dat)
+    text = force_agenda_view(s, r, view, username, num_dat)
+    check_asp_session(text)
+    return text
 
 
 AGENDA_VIEW_OPTION_RE = re.compile(r'<option\s+value="([^"]+\.xsl)"[^>]*>(.*?)</option>', re.IGNORECASE | re.DOTALL)
@@ -533,13 +548,66 @@ def fetch_week_events(s: requests.Session, agenda_url: str, ref: datetime.date |
     monday, sunday = week_bounds(ref)
     anchors = [monday] if monday[:6] == sunday[:6] else [monday, sunday]
     by_id = {}
+    nom_cal = ""
     for anchor in anchors:
         page = fetch_agenda_html(s, agenda_url, username=username, num_dat=anchor)
+        if not nom_cal:
+            m = AGENDA_NOMCAL_RE.search(page)
+            nom_cal = m.group(1) if m else ""
         for e in parse_events(page, username=username):
             by_id[e["id"]] = e
     events = filter_week(list(by_id.values()), ref)
     events.sort(key=lambda e: (e["date"], e["time"]))
+    add_event_trainers(s, events, nom_cal, username=username)
     return events
+
+
+AGENDA_NOMCAL_RE = re.compile(r'name="NomCal"\s+value="([^"]*)"', re.IGNORECASE)
+EVENT_DETAIL_URL = f"{BASE}/Eplug/Agenda/Eve-Det.asp"
+# Eve-Det.asp is what the agenda's hover popup (DetEve) loads: a script calling
+# parent.MajDet('<TABLE>…</TABLE>'), i.e. the popup HTML inside a JS string literal —
+# hence the \/ and \' escapes undone before matching. The trainers row reads
+# "<B>4 Formateur(s)</B> : </TD><TD …>NAME<BR>NAME…</TD>".
+TRAINERS_CELL_RE = re.compile(
+    r"<B>\s*\d*\s*Formateur(?:\(s\)|s)?\s*</B>\s*:\s*</TD>\s*<TD[^>]*>(.*?)</TD>",
+    re.IGNORECASE | re.DOTALL,
+)
+BR_RE = re.compile(r"<BR\s*/?>", re.IGNORECASE)
+
+
+def parse_event_trainers(page: str) -> list:
+    """Names listed under "Formateur(s)" in an Eve-Det.asp answer. Only that row is read:
+    the same popup also lists every enrolled student ("95 Apprenant(s)"), which this app
+    has no business keeping — so no debug dump of this page either."""
+    text = page.replace("\\/", "/").replace("\\'", "'")
+    m = TRAINERS_CELL_RE.search(text)
+    if not m:
+        return []
+    return [name for name in (_cell_text(part) for part in BR_RE.split(m.group(1))) if name]
+
+
+def fetch_event_trainers(s: requests.Session, event_id: str, date: str, nom_cal: str) -> list:
+    r = s.get(EVENT_DETAIL_URL, params={"NumEve": event_id, "DatSrc": date, "NomCal": nom_cal}, timeout=15)
+    r.raise_for_status()
+    check_asp_session(r.text)
+    return parse_event_trainers(r.text)
+
+
+def add_event_trainers(s: requests.Session, events: list, nom_cal: str, username: str | None = None) -> None:
+    """Sets e["teachers"] on every event. Neither the Tableau nor the calendar views carry
+    the trainers; only the per-event popup does, so this costs one request per event.
+    Sequential on purpose: classic ASP serializes requests sharing a session anyway.
+    A failure leaves that event's list empty instead of failing the whole week."""
+    for e in events:
+        e["teachers"] = []
+    if not nom_cal:
+        logger.error("add_event_trainers: NomCal not found on the agenda page — user=%s", username or "?")
+        return
+    for e in events:
+        try:
+            e["teachers"] = fetch_event_trainers(s, e["id"], e["date"], nom_cal)
+        except requests.RequestException as exc:
+            logger.error("add_event_trainers: event %s failed (%r) — user=%s", e["id"], exc, username or "?")
 
 
 DOSSIER_FRAME_RE = re.compile(r"addFrame\('frm0','(IMTA_DossierEtudiant\.opx\?[^']+)'")
@@ -611,6 +679,8 @@ def print_schedule(by_day: dict):
         print(f"\n=== {DAYS_FR[d.weekday()]} {d.strftime('%d/%m/%Y')} ===")
         for e in day_events:
             print(f"  {e['time']}  {e['title']}")
+            if e.get("teachers"):
+                print(f"      Formateur(s) : {', '.join(e['teachers'])}")
             if e["details"]:
                 print(f"      {' | '.join(e['details'])}")
 

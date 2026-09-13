@@ -80,6 +80,12 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 /* Long course titles in the "toujours exclus" tags wrap instead of overflowing. */
 .att-rules .fr-tag{white-space:normal;text-align:left;height:auto;max-width:100%}
 
+/* « Actualiser / Réimporter depuis PASS »: the DSFR icon (a ::before mask) spins while the
+   several-second PASS round-trip is pending; repeat clicks are ignored meanwhile. */
+@keyframes att-spin { to { transform: rotate(360deg); } }
+.fr-btn.att-loading::before{animation:att-spin 1s linear infinite}
+.fr-btn.att-loading{pointer-events:none}
+
 @media (max-width:47.98em){
   .att-login-btn{width:100%;justify-content:center}
   .fr-callout{padding:1.25rem}
@@ -182,6 +188,23 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
     var addr = atob(link.dataset.enc);
     link.href = "mailto:" + addr;
     link.textContent = addr;
+  });
+
+  // The refresh buttons are plain links: spin until the next page replaces this one.
+  document.querySelectorAll(".fr-btn.fr-icon-refresh-line").forEach(function(btn) {
+    btn.addEventListener("click", function(ev) {
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;  // new tab: nothing to wait for here
+      btn.classList.add("att-loading");
+      btn.setAttribute("aria-busy", "true");
+    });
+  });
+  // Back/forward cache restores the page exactly as left, i.e. still spinning.
+  window.addEventListener("pageshow", function(ev) {
+    if (!ev.persisted) return;
+    document.querySelectorAll(".att-loading").forEach(function(btn) {
+      btn.classList.remove("att-loading");
+      btn.removeAttribute("aria-busy");
+    });
   });
 })();
 </script>

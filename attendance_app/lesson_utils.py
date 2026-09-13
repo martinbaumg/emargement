@@ -33,12 +33,40 @@ def looks_like_person_name(s: str) -> bool:
     return any(c.isalpha() for c in tokens[-1])
 
 
+def teacher_names(events: list) -> list:
+    """Trainers of one or several events (a merged PDF row), de-duplicated in order. PASS's
+    own "Formateur(s)" list (e["teachers"], see pass_schedule.add_event_trainers) wins;
+    the detail-line guess only covers rows cached before that list existed."""
+    names = []
+    for e in events:
+        for name in e.get("teachers") or [t for t in e["details"] if looks_like_person_name(t)][:2]:
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def short_teacher_name(name: str) -> str:
+    """PASS's "BAUMGAERTNER Martin" -> "BAUMGAERTNER M." for the PDF: the leading
+    all-caps words are the surname, then the first given name's initial ("Pierre-Antoine"
+    -> "P.-A."; later given names dropped). Anything not in that shape is kept as is."""
+    tokens = name.split()
+    i = 0
+    while i < len(tokens) and _is_upper_token(tokens[i]):
+        i += 1
+    if i == 0 or i == len(tokens):
+        return name
+    initials = "-".join(f"{part[0]}." for part in tokens[i].split("-") if part)
+    return f"{' '.join(tokens[:i])} {initials}"
+
+
 def cache_lessons(db, owner_username, events):
     for e in events:
         db.execute(
-            "INSERT OR REPLACE INTO lessons_cache (lesson_id, owner_username, date, time, title, details_json) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (e["id"], owner_username, e["date"], e["time"], e["title"], json.dumps(e["details"])),
+            "INSERT OR REPLACE INTO lessons_cache "
+            "(lesson_id, owner_username, date, time, title, details_json, teachers_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (e["id"], owner_username, e["date"], e["time"], e["title"], json.dumps(e["details"]),
+             json.dumps(e.get("teachers", []))),
         )
     db.commit()
 

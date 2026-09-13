@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Données locales (base SQLite, clé de session, verrou)
+*.db
+*.db-journal
+*.sqlite*
+.secret_key
+.app.lock
+data/
+
+# Environnement
+.env
+.env.*
+
+# macOS
+.DS_Store

@@ -64,8 +64,9 @@ LOGIN_TEMPLATE = """
     var label = btn.textContent;
     var steps = [
         [0, "Connexion à PASS…"],
-        [4000, "Récupération de votre emploi du temps…"],
-        [10000, "Récupération des intervenants de chaque cours…"],
+        [2000, "Si c'est long, c'est PASS qui traîne, pas moi 🐢"],
+        [6000, "Récupération de votre emploi du temps…"],
+        [12000, "Récupération des intervenants de chaque cours…"],
         [25000, "Encore quelques secondes, PASS est parfois lent…"]
     ];
     var timers = [];

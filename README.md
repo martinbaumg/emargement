@@ -86,7 +86,12 @@ vide plutôt qu'un code faux.
 Sur la page des cours, chaque séance affiche son code UE sous le titre (« CCU »), ou « Sans code
 UE » si la table n'en donne pas et que la séance est sur le PDF. Une ligne résume la semaine : total
 d'heures programmées (toutes les séances, exclues comprises, comme sur le PDF), séances exclues et
-séances sans code UE, avec un lien vers la table. Les deux compteurs se mettent à jour quand on
+séances sans code UE, avec un lien vers la table. Un clic sur « Sans code UE », ou sur un code déjà
+affiché pour le corriger, permet de taper le code directement à sa place (Entrée pour valider, Échap
+pour annuler). La table du profil est mise à jour : la ligne « Nom de l'UE = CODE » est ajoutée,
+ou corrigée si elle ne concerne que ce cours ; si le code venait d'une ligne plus générale
+(« Langues = LCI310 »), une ligne propre au cours est insérée avant elle, pour ne pas changer les
+autres cours. Toutes les séances concernées affichent aussitôt leur code. Les deux compteurs se mettent à jour quand on
 inclut ou exclut une séance.
 
 Le bouton « Remplir depuis PASS », sous la table, la complète avec les codes que PASS connaît pour

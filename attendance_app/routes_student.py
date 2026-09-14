@@ -1,10 +1,12 @@
 """Student-facing routes: login/logout, lessons, profile, and the PDF export."""
 import datetime
 import itertools
+import json
+import re
 import secrets
 
 import requests
-from flask import Response, redirect, request, session, url_for
+from flask import Response, jsonify, redirect, request, session, url_for
 
 import pass_schedule as ps
 import pdf_export
@@ -13,7 +15,7 @@ from csrf import check_csrf, generate_csrf
 from db import get_db
 from layout import fip_dsfr_css, render
 from lesson_utils import (_time_bounds, merge_contiguous_lessons, merge_ue_suggestions, parse_ue_table,
-                          short_teacher_name, teacher_names, ue_code_for)
+                          normalized_words, short_teacher_name, teacher_names, ue_code_for, ue_name_from_projet)
 from pass_session import LIVE_SESSIONS, current_pass_session, fetch_events_cached, suggest_ue_codes, week_fetched
 
 # ---------------------------------------------------------------- student side
@@ -300,9 +302,11 @@ def lessons():
         {# Under the course title on cards and table alike: a column of its own would squeeze
            the fixed-layout table on tablets. A missing code only matters for sessions on the
            PDF — hidden by CSS on excluded ones, so a toggle updates it without a reload. #}
-        <p class="att-ue">
-            {% if e.code_ue %}<span class="fr-badge fr-badge--sm fr-badge--no-icon">{{ e.code_ue }}</span>
-            {% else %}<span class="fr-badge fr-badge--sm fr-badge--warning fr-badge--no-icon att-ue-missing">Sans code UE</span>{% endif %}
+        <p class="att-ue" data-title="{{ e.title }}">
+            {% if e.code_ue %}<button type="button" class="fr-badge fr-badge--sm fr-badge--no-icon att-ue-edit"
+                data-code="{{ e.code_ue }}" title="Cliquer pour modifier le code UE">{{ e.code_ue }}</button>
+            {% else %}<button type="button" class="fr-badge fr-badge--sm fr-badge--warning fr-badge--no-icon att-ue-missing att-ue-edit"
+                title="Cliquer pour saisir le code UE">Sans code UE</button>{% endif %}
         </p>
         {%- endmacro %}
         {% macro rule_form(e, day) -%}
@@ -475,6 +479,108 @@ def lessons():
                     el.querySelector('[data-summary-count]').textContent = part[1];
                 });
             }
+            // Every CODE UE badge — « Sans code UE » as well as an existing code, to fix a
+            // mistake — is edited in place: it turns into a small input right where it was,
+            // pre-filled with the current code. Enter or leaving the field saves; Escape, an
+            // empty field or an unchanged code cancels. The answer lists the week's codes with
+            // the updated table, so every session concerned — both copies, card and table —
+            // shows its code without a reload.
+            var csrfInput = document.querySelector('input[name="csrf_token"]');
+            function codeButton(code) {
+                var el = document.createElement('button');
+                el.type = 'button';
+                el.className = 'fr-badge fr-badge--sm fr-badge--no-icon att-ue-edit';
+                el.dataset.code = code;
+                el.title = 'Cliquer pour modifier le code UE';
+                el.textContent = code;
+                return el;
+            }
+            function showCode(lessonId, code) {
+                document.querySelectorAll('[data-lesson-row="' + CSS.escape(lessonId) + '"]').forEach(function (row) {
+                    if ('hasCode' in row.dataset) row.dataset.hasCode = '1';
+                    var box = row.querySelector('.att-ue');
+                    if (box && !box.querySelector('[data-code="' + CSS.escape(code) + '"]')) box.replaceChildren(codeButton(code));
+                });
+            }
+            function editCode(btn) {
+                var box = btn.parentElement, current = btn.dataset.code || '';
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'fr-input att-ue-input';
+                input.placeholder = 'Code UE';
+                input.maxLength = 20;
+                input.autocomplete = 'off';
+                input.spellcheck = false;
+                input.setAttribute('autocapitalize', 'characters');
+                input.setAttribute('enterkeyhint', 'done');
+                input.setAttribute('aria-label', 'Code UE de « ' + box.dataset.title + ' »');
+                input.value = current;
+                var error = null, busy = false, closed = false;
+                function close() {
+                    if (closed) return;
+                    closed = true;
+                    input.remove();
+                    if (error) error.remove();
+                    btn.style.display = '';
+                }
+                function fail(message) {
+                    busy = false;
+                    input.readOnly = false;
+                    if (!error) {
+                        error = document.createElement('p');
+                        error.className = 'fr-error-text att-ue-error';
+                        box.appendChild(error);
+                    }
+                    error.textContent = message;
+                    input.focus();
+                }
+                function save() {
+                    if (busy || closed) return;
+                    var code = input.value.trim();
+                    if (!code || code.toUpperCase() === current) { close(); btn.focus(); return; }
+                    busy = true;
+                    input.readOnly = true;
+                    var body = new FormData();
+                    body.append('csrf_token', csrfInput ? csrfInput.value : '');
+                    body.append('title', box.dataset.title);
+                    body.append('code', code);
+                    body.append('week', '{{ week_offset }}');
+                    fetch('{{ url_for("lesson_ue_code") }}', {method: 'POST', body: body, credentials: 'same-origin'})
+                        .then(function (r) {
+                            return r.json().catch(function () { return {}; }).then(function (data) {
+                                if (!r.ok) throw new Error(data.error || 'Enregistrement impossible, réessayez.');
+                                return data;
+                            });
+                        })
+                        .then(function (data) {
+                            closed = true;
+                            Object.keys(data.codes).forEach(function (id) {
+                                if (data.codes[id]) showCode(id, data.codes[id]);
+                            });
+                            refreshSummary();
+                            var again = box.querySelector('.att-ue-edit');  // keyboard users land back on the badge
+                            if (again) again.focus();
+                        })
+                        .catch(function (err) { fail(err.message); });
+                }
+                input.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+                    else if (ev.key === 'Escape') { close(); btn.focus(); }
+                });
+                input.addEventListener('blur', function () {
+                    // Leaving after a failed save gives up instead of retrying in a loop.
+                    if (busy) return;
+                    if (input.value.trim() && !error) { save(); } else { close(); }
+                });
+                btn.style.display = 'none';
+                box.appendChild(input);
+                input.focus();
+                input.select();  // an existing code: typing replaces it straight away
+            }
+            document.addEventListener('click', function (ev) {
+                var btn = ev.target.closest('.att-ue-edit');
+                if (btn) editCode(btn);
+            });
             // DSFR's dismissible tag removes its own button from the DOM on click, which
             // detaches it from the form before the browser submits — so the post never left.
             // Capture phase on the form runs before DSFR's handler on the button itself.
@@ -519,6 +625,63 @@ def lessons():
         selected_day=default_date or "",
         csrf_token=generate_csrf(),
     )
+
+
+UE_CODE_RE = re.compile(r"[A-Z0-9][A-Z0-9_-]{0,19}")
+
+
+@app.route("/lessons/ue-code", methods=["POST"])
+def lesson_ue_code():
+    """A CODE UE typed in place on /lessons (new, or fixing a wrong one). The name written is
+    the course title's UE part, as « Remplir depuis PASS » writes it. In the table:
+      - no line gives this course a code yet -> "name = CODE" appended;
+      - the line that does (first match wins) is this course's own -> its code replaced in
+        place, so a typo fix leaves no dead line behind;
+      - it's a broader line ("Langues = LCI310", covering other courses too) -> the specific
+        line inserted just before it, so only this course changes.
+    Answers {lesson_id: code} for the week, so the page updates without a reload."""
+    if not current_pass_session():
+        return jsonify(error="Session expirée, reconnectez-vous."), 401
+    if not check_csrf():
+        return jsonify(error="Session expirée, rechargez la page."), 400
+    username = session["username"]
+    title = request.form.get("title", "").strip()
+    code = request.form.get("code", "").strip().upper()
+    if not title or not UE_CODE_RE.fullmatch(code):
+        return jsonify(error="Code UE invalide : lettres, chiffres, - et _ uniquement."), 400
+
+    db = get_db()
+    row = db.execute("SELECT ue_table FROM profiles WHERE owner_username=?", (username,)).fetchone()
+    if not row:
+        return jsonify(error="Enregistrez d'abord votre profil, puis réessayez."), 409
+    cached = db.execute("SELECT details_json FROM lessons_cache WHERE owner_username=? AND title=? LIMIT 1",
+                        (username, title)).fetchone()
+    lesson = [{"title": title, "details": json.loads(cached["details_json"]) if cached else []}]
+    name = ue_name_from_projet(title.split(" - ")[0]) or title
+    if not ue_code_for(lesson, [([name], code)]):
+        name = title  # can't happen with ue_name_from_projet's output, but never write a dead line
+
+    lines = row["ue_table"].rstrip().splitlines()
+    matching = next((i for i, line in enumerate(lines) if ue_code_for(lesson, parse_ue_table(line))), None)
+    if matching is None:
+        lines.append(f"{name} = {code}")
+    elif any(normalized_words(n) == normalized_words(name) for n in parse_ue_table(lines[matching])[0][0]):
+        lines[matching] = f"{lines[matching].split('=', 1)[0].rstrip()} = {code}"
+    else:
+        lines.insert(matching, f"{name} = {code}")
+    ue_text = "\n".join(lines)
+    db.execute("UPDATE profiles SET ue_table=? WHERE owner_username=?", (ue_text, username))
+    db.commit()
+
+    week_offset = max(-MAX_WEEK_OFFSET, min(MAX_WEEK_OFFSET, request.form.get("week", 0, type=int)))
+    week_start, week_end = ps.week_bounds(datetime.date.today() + datetime.timedelta(weeks=week_offset))
+    table = parse_ue_table(ue_text)
+    codes = {
+        r["lesson_id"]: ue_code_for([{"title": r["title"], "details": json.loads(r["details_json"])}], table)
+        for r in db.execute("SELECT lesson_id, title, details_json FROM lessons_cache "
+                            "WHERE owner_username=? AND date BETWEEN ? AND ?", (username, week_start, week_end))
+    }
+    return jsonify(codes=codes)
 
 
 def _exclusions(db, username):

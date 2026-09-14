@@ -142,6 +142,14 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 /* CODE UE badge under each course title (cards and table), and the week summary line. */
 .att-ue{margin:.25rem 0 0;line-height:1}
 .att-excluded .att-ue-missing{display:none}
+/* « Sans code UE » is a button: a click turns it into this input, typed in place. */
+.att-ue-edit{cursor:pointer;border:0}
+.att-ue-edit:hover,.att-ue-edit:focus-visible{text-decoration:underline}
+/* font-size 1rem (16px): below that, iOS Safari zooms the whole page when the field gets focus. */
+.att-ue-input{display:inline-block;width:9rem;max-width:100%;margin:0;padding:.25rem .5rem;
+  font-size:1rem;line-height:1.5rem;text-transform:uppercase}
+.att-ue-input::placeholder{text-transform:none}
+.att-ue-error{margin:.25rem 0 0;line-height:1.25rem}
 .att-week-summary__total{color:var(--text-default-grey)}
 .att-week-summary>span:not(:first-child)::before{content:" · "}
 @media (max-width:47.98em){

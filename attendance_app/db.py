@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS title_exclusions (
     created_at TEXT NOT NULL,
     PRIMARY KEY (owner_username, title)
 );
+-- Students who have been shown the first-login guide (layout's #att-guide modal), so it
+-- only opens by itself once; the footer link reopens it any time.
+CREATE TABLE IF NOT EXISTS guide_seen (
+    owner_username TEXT PRIMARY KEY,
+    seen_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS live_sessions (
     token TEXT PRIMARY KEY,
     owner_username TEXT NOT NULL,

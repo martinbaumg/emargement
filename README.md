@@ -38,6 +38,14 @@ Dans « Profil », l'interrupteur « Remplir le nom des intervenants sur le PDF 
 colonne « Nom intervenant » vide. Il est activé par défaut ; les noms restent affichés sur la page
 des cours dans tous les cas.
 
+### Guide à la première connexion
+
+À la première connexion, une fenêtre (modale DSFR, en plein écran sur téléphone) explique l'usage
+en quatre étapes : compléter le profil avec « Remplir depuis PASS », **vérifier les codes UE**
+proposés avant d'enregistrer, choisir les séances, puis télécharger et faire signer la feuille.
+Elle ne s'ouvre d'elle-même qu'une fois ; le lien « Guide d'utilisation » du pied de page la
+rouvre.
+
 ### Exclure des séances du PDF
 
 Certaines séances n'ont pas besoin de signature, par exemple « Travail Autonomie ». Elles peuvent
@@ -73,6 +81,11 @@ cours dont le titre PASS contient ce nom :
 
 Il n'y a pas de correspondance approximative : un cours sans correspondance exacte garde une case
 vide plutôt qu'un code faux.
+
+Sur la page des cours, chaque séance affiche son code UE sous le titre (« CCU »), ou « Sans code
+UE » si la table n'en donne pas et que la séance est sur le PDF. Une ligne résume la semaine : total
+d'heures du PDF, séances exclues et séances sans code UE, avec un lien vers la table. Elle se met à
+jour quand on inclut ou exclut une séance.
 
 Le bouton « Remplir depuis PASS », sous la table, la complète avec les codes que PASS connaît pour
 les cours déjà chargés :

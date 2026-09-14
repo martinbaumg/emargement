@@ -174,6 +174,20 @@ def healthz():
     return "ok"
 
 
+@app.route("/guide/seen", methods=["POST"])
+def guide_seen():
+    """Called by the first-login guide once shown (see layout), so it stops opening by itself."""
+    if not session.get("username"):
+        return "", 401
+    if not check_csrf():
+        return "", 400
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO guide_seen (owner_username, seen_at) VALUES (?, ?)",
+               (session["username"], datetime.datetime.now().isoformat(timespec="seconds")))
+    db.commit()
+    return "", 204
+
+
 @app.route("/fip/dsfr.min.css")
 def fip_dsfr_stylesheet():
     """DSFR stylesheet with pink instead of blue, for « Je suis FIP » profiles (see
@@ -223,12 +237,21 @@ def lessons():
     week_loaded = week_fetched(username, week_ref)
 
     excluded_ids, excluded_titles = _exclusions(get_db(), username)
+    profile_row = get_db().execute("SELECT ue_table FROM profiles WHERE owner_username=?", (username,)).fetchone()
+    ue_table = parse_ue_table(profile_row["ue_table"] if profile_row else "")
     for e in events:
         e["time_label"] = e["time"].replace("H", ":").replace("-", " – ")
         e["teacher"] = " / ".join(teacher_names([e]))
         e["always_excluded"] = e["title"] in excluded_titles
         e["excluded"] = e["always_excluded"] or e["id"] in excluded_ids
+        e["code_ue"] = ue_code_for([e], ue_table)
+        # Same rule as export_pdf: only sessions with a real "HHHMM-HHHMM" range count.
+        start, end = _time_bounds(e["time"]) if ps.TIME_RE.match(e["time"]) else (0, 0)
+        e["minutes"] = end - start
     excluded_count = sum(1 for e in events if e["excluded"])
+    included = [e for e in events if not e["excluded"]]
+    total_label = pdf_export.format_hours(sum(e["minutes"] for e in included) / 60)
+    missing_code_count = sum(1 for e in included if not e["code_ue"])
 
     today_str = datetime.date.today().strftime("%Y%m%d")
     monday, sunday = ps.week_bounds(week_ref)
@@ -273,6 +296,15 @@ def lessons():
             <noscript><button type=submit class="fr-btn fr-btn--tertiary fr-btn--sm fr-mt-1w">Enregistrer</button></noscript>
         </form>
         {%- endmacro %}
+        {% macro ue_badge(e) -%}
+        {# Under the course title on cards and table alike: a column of its own would squeeze
+           the fixed-layout table on tablets. A missing code only matters for sessions on the
+           PDF — hidden by CSS on excluded ones, so a toggle updates it without a reload. #}
+        <p class="att-ue">
+            {% if e.code_ue %}<span class="fr-badge fr-badge--sm fr-badge--no-icon">{{ e.code_ue }}</span>
+            {% else %}<span class="fr-badge fr-badge--sm fr-badge--warning fr-badge--no-icon att-ue-missing">Sans code UE</span>{% endif %}
+        </p>
+        {%- endmacro %}
         {% macro rule_form(e, day) -%}
         <form method=post action="{{ url_for('title_exclusion') }}" class="att-rule-form" {{ '' if e.excluded else 'hidden' }}>
             <input type=hidden name="csrf_token" value="{{ csrf_token }}">
@@ -307,7 +339,15 @@ def lessons():
             </li>
         </ul>
         </div>
-        <p class="fr-text--sm att-details fr-mb-2w" id="att-excluded-count" aria-live="polite">{% if excluded_count %}{{ excluded_count }} séance(s) exclue(s) du PDF cette semaine.{% endif %}</p>
+        {% if days %}
+        {# Kept current by the script below when a session is toggled in or out of the PDF. #}
+        <p class="fr-text--sm att-details fr-mb-2w att-week-summary" id="att-week-summary" aria-live="polite">
+            <span>Total sur le PDF : <strong class="att-week-summary__total" data-summary="total">{{ total_label }}</strong></span>
+            <span data-summary="excluded" {{ '' if excluded_count else 'hidden' }}><span data-summary-count>{{ excluded_count }}</span> séance(s) exclue(s)</span>
+            <span data-summary="missing" {{ '' if missing_code_count else 'hidden' }}><span data-summary-count>{{ missing_code_count }}</span> séance(s) sans code UE
+                (<a class="fr-link fr-link--sm" href="{{ url_for('profile') }}#ue_table">compléter la table des UE</a>)</span>
+        </p>
+        {% endif %}
         {% if not week_loaded %}
         <div class="fr-alert fr-alert--info fr-alert--sm fr-mb-3w">
             <p>Cette semaine n'a pas encore été chargée depuis PASS.
@@ -357,6 +397,7 @@ def lessons():
                             {% endif %}
                         </div>
                         <p class="att-lesson-card__title">{{ e.title }}</p>
+                        {{ ue_badge(e) }}
                         {% if e.teacher %}
                         <p class="att-lesson-card__meta"><span class="fr-icon-user-line fr-icon--sm" aria-hidden="true"></span> {{ e.teacher }}</p>
                         {% endif %}
@@ -369,9 +410,10 @@ def lessons():
                 <thead><tr><th class="att-time-col">Horaire</th><th>Cours</th><th>Intervenant</th><th class="att-pdf-col">Sur le PDF</th></tr></thead>
                 <tbody>
                 {% for e in day.lessons %}
-                <tr class="{{ 'att-excluded' if e.excluded else '' }}" data-lesson-row="{{ e.id }}">
+                <tr class="{{ 'att-excluded' if e.excluded else '' }}" data-lesson-row="{{ e.id }}"
+                    data-minutes="{{ e.minutes }}" data-has-code="{{ '1' if e.code_ue else '' }}">
                     <td>{{ e.time_label }}</td>
-                    <td>{{ e.title }}</td>
+                    <td>{{ e.title }}{{ ue_badge(e) }}</td>
                     <td><span class="att-details">{{ e.teacher or '—' }}</span></td>
                     <td class="att-pdf-col">
                         {% if e.always_excluded %}
@@ -417,10 +459,24 @@ def lessons():
         (function () {
             // Saves each toggle in place; falls back to a normal form post (full reload) if
             // the request fails, so the PDF never silently disagrees with what's shown.
-            var counter = document.getElementById('att-excluded-count');
-            function refreshCount() {
-                var n = document.querySelectorAll('.att-lessons-table tr.att-excluded').length;
-                counter.textContent = n ? n + ' séance(s) exclue(s) du PDF cette semaine.' : '';
+            var summary = document.getElementById('att-week-summary');
+            // Recomputed from the table copy of each session (always in the DOM, even when
+            // hidden on phones): data-minutes / data-has-code, and whether it's excluded.
+            function refreshSummary() {
+                if (!summary) return;
+                var minutes = 0, excluded = 0, missing = 0;
+                document.querySelectorAll('.att-lessons-table tr[data-lesson-row]').forEach(function (row) {
+                    if (row.classList.contains('att-excluded')) { excluded++; return; }
+                    minutes += parseInt(row.dataset.minutes, 10) || 0;
+                    if (!row.dataset.hasCode) missing++;
+                });
+                summary.querySelector('[data-summary="total"]').textContent =
+                    Math.floor(minutes / 60) + 'h' + String(minutes % 60).padStart(2, '0');
+                [['excluded', excluded], ['missing', missing]].forEach(function (part) {
+                    var el = summary.querySelector('[data-summary="' + part[0] + '"]');
+                    el.hidden = !part[1];
+                    el.querySelector('[data-summary-count]').textContent = part[1];
+                });
             }
             // DSFR's dismissible tag removes its own button from the DOM on click, which
             // detaches it from the form before the browser submits — so the post never left.
@@ -442,7 +498,7 @@ def lessons():
                         row.querySelectorAll('.fr-toggle__input').forEach(function (t) { t.checked = included; });
                         row.querySelectorAll('.att-rule-form').forEach(function (f) { f.hidden = included; });
                     });
-                    refreshCount();
+                    refreshSummary();
                     var form = input.form;
                     fetch(form.action, {
                         method: 'POST', body: new FormData(form), credentials: 'same-origin',
@@ -460,6 +516,8 @@ def lessons():
         week_label=week_label,
         week_loaded=week_loaded,
         excluded_count=excluded_count,
+        total_label=total_label,
+        missing_code_count=missing_code_count,
         always_excluded=sorted(excluded_titles),
         selected_day=default_date or "",
         csrf_token=generate_csrf(),

@@ -7,6 +7,7 @@ import re
 from flask import render_template_string, session, url_for
 
 import db as dbmod
+from csrf import generate_csrf
 
 # Vendored under static/dsfr/ (see attendance_app/static/dsfr) rather than pulled from
 # jsdelivr's CDN at request time — a third-party CDN in the page's dependency chain is
@@ -138,6 +139,27 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 .att-lesson-card__meta{margin:.25rem 0 0;font-size:.875rem;color:var(--text-mention-grey)}
 .att-lesson-card .fr-toggle{flex:none;padding:0}
 
+/* CODE UE badge under each course title (cards and table), and the week summary line. */
+.att-ue{margin:.25rem 0 0;line-height:1}
+.att-excluded .att-ue-missing{display:none}
+.att-week-summary__total{color:var(--text-default-grey)}
+.att-week-summary>span:not(:first-child)::before{content:" · "}
+@media (max-width:47.98em){
+  /* Phones: one fact per line reads better than a wrapped run of " · ". */
+  .att-week-summary>span{display:block}
+  .att-week-summary>span:not(:first-child)::before{content:none}
+  .att-week-summary>span[hidden]{display:none}
+}
+
+/* First-login guide (#att-guide): steps as a compact numbered list, and the footer link
+   that reopens it is a <button> dressed like its <a> neighbours. */
+.att-guide-steps{margin:0;padding-left:1.25rem}
+.att-guide-steps>li{margin-bottom:1rem}
+.att-guide-steps>li:last-child{margin-bottom:0}
+.att-guide-steps p{margin:.25rem 0 0}
+.att-guide-steps .fr-highlight{margin:.5rem 0 0 0;padding-left:1rem}
+button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inherit}
+
 /* Long course titles in the "toujours exclus" tags wrap instead of overflowing. */
 .att-rules .fr-tag{white-space:normal;text-align:left;height:auto;max-width:100%}
 
@@ -246,6 +268,57 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 {% endif %}{% endwith %}
 {{ body|safe }}
 </div>
+{% if logged_in %}
+{# DSFR modal: centered dialog on desktop, full-width sheet with its own scroll on phones.
+   Opened by the footer « Guide d'utilisation » button; data-fr-opened="true" on it opens
+   it at load for a student who has never seen it (show_guide). #}
+<dialog id="att-guide" class="fr-modal" role="dialog" aria-labelledby="att-guide-title"
+  {% if show_guide %}data-mark-seen="{{ url_for('guide_seen') }}" data-csrf="{{ csrf_token }}"{% endif %}>
+  <div class="fr-container fr-container--fluid fr-container-md">
+    <div class="fr-grid-row fr-grid-row--center">
+      <div class="fr-col-12 fr-col-md-10 fr-col-lg-8">
+        <div class="fr-modal__body">
+          <div class="fr-modal__header">
+            <button type="button" class="fr-btn--close fr-btn" title="Fermer le guide" aria-controls="att-guide">Fermer</button>
+          </div>
+          <div class="fr-modal__content">
+            <h1 id="att-guide-title" class="fr-modal__title">Bienvenue sur Émargement</h1>
+            <p>Votre feuille d'émargement se prépare en quatre étapes.</p>
+            <ol class="att-guide-steps">
+              <li>
+                <strong>Complétez votre profil.</strong>
+                <p>Nom, prénom, formation et TAF sont repris de PASS. Dans «&nbsp;Table des UE&nbsp;», cliquez sur
+                «&nbsp;Remplir depuis PASS&nbsp;» : les codes UE de vos cours sont ajoutés automatiquement.</p>
+              </li>
+              <li>
+                <strong>Vérifiez vos codes UE, puis enregistrez.</strong>
+                <p class="fr-highlight">Ces codes sont déduits de PASS et peuvent être faux ou manquer :
+                relisez chaque ligne, corrigez-la si besoin, puis cliquez sur «&nbsp;Enregistrer&nbsp;».</p>
+              </li>
+              <li>
+                <strong>Choisissez les séances.</strong>
+                <p>Sur la page «&nbsp;Cours&nbsp;», retirez du PDF les séances qui ne se signent pas (travail en autonomie…).
+                Les séances sans code UE y sont signalées.</p>
+              </li>
+              <li>
+                <strong>Téléchargez et faites signer.</strong>
+                <p>«&nbsp;Télécharger la feuille d'émargement&nbsp;», imprimez-la et faites-la signer.
+                Si votre emploi du temps change, cliquez sur «&nbsp;Actualiser depuis PASS&nbsp;».</p>
+              </li>
+            </ol>
+          </div>
+          <div class="fr-modal__footer">
+            <ul class="fr-btns-group fr-btns-group--right fr-btns-group--inline-reverse fr-btns-group--inline-lg fr-btns-group--icon-left">
+              <li><a class="fr-btn fr-icon-user-line" href="{{ url_for('profile') }}#ue_table">Compléter mon profil</a></li>
+              <li><button type="button" class="fr-btn fr-btn--secondary" aria-controls="att-guide">J'ai compris</button></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+{% endif %}
 <footer class="fr-footer" role="contentinfo">
   <div class="fr-container">
     <div class="fr-footer__body">
@@ -259,6 +332,12 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
           <li class="fr-footer__content-item">
             <a class="fr-footer__content-link att-contact-link" data-enc="Y29udGFjdEBiYXVtZ2FlcnRuZXIuZnI=" href="#">Contact</a>
           </li>
+          {% if logged_in %}
+          <li class="fr-footer__content-item">
+            <button type="button" class="fr-footer__content-link att-guide-link" aria-controls="att-guide"
+              data-fr-opened="{{ 'true' if show_guide else 'false' }}">Guide d'utilisation</button>
+          </li>
+          {% endif %}
         </ul>
       </div>
     </div>
@@ -273,6 +352,18 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
     link.href = "mailto:" + addr;
     link.textContent = addr;
   });
+
+  // First-login guide: once it has actually been shown (DSFR's dsfr.disclose event), record
+  // it so it stops opening by itself. Listener set here, before the DSFR module script (run
+  // after parsing) opens it.
+  var guide = document.getElementById("att-guide");
+  if (guide && guide.dataset.markSeen) {
+    guide.addEventListener("dsfr.disclose", function() {
+      var body = new FormData();
+      body.append("csrf_token", guide.dataset.csrf);
+      fetch(guide.dataset.markSeen, {method: "POST", body: body, credentials: "same-origin"});
+    }, {once: true});
+  }
 
   // The PASS buttons (refresh icon) each start a request lasting several seconds: spin
   // until the next page replaces this one, and keep the wait light with a rotating quip.
@@ -361,14 +452,23 @@ def _header_profile(username: str) -> tuple:
     return name, bool(row and row["is_fip"])
 
 
+def _guide_seen(username: str) -> bool:
+    return dbmod.get_db().execute(
+        "SELECT 1 FROM guide_seen WHERE owner_username=?", (username,)).fetchone() is not None
+
+
 def render(body_template, **ctx):
     body = render_template_string(body_template, **ctx)
-    display_name, is_fip = _header_profile(session["username"]) if session.get("username") else (None, False)
+    username = session.get("username")
+    display_name, is_fip = _header_profile(username) if username else (None, False)
     dsfr_base = url_for("static", filename="dsfr")
     # ?v= so browsers drop their cached recolored sheet when the vendored DSFR is bumped.
     dsfr_css = url_for("fip_dsfr_stylesheet", v=DSFR_VERSION) if is_fip else f"{dsfr_base}/dsfr.min.css"
+    logged_in = bool(session.get("token") and username)
     return render_template_string(LAYOUT, body=body, dsfr_base=dsfr_base, dsfr_css=dsfr_css,
-                                  display_name=display_name)
+                                  display_name=display_name, logged_in=logged_in,
+                                  show_guide=logged_in and not _guide_seen(username),
+                                  csrf_token=generate_csrf() if logged_in else "")
 
 
 def get_flashed_message():

@@ -586,11 +586,34 @@ def parse_event_trainers(page: str) -> list:
     return [name for name in (_cell_text(part) for part in BR_RE.split(m.group(1))) if name]
 
 
-def fetch_event_trainers(s: requests.Session, event_id: str, date: str, nom_cal: str) -> list:
+def fetch_event_detail(s: requests.Session, event_id: str, date: str, nom_cal: str) -> str:
+    """Raw Eve-Det.asp answer for one event (see parse_event_trainers, parse_event_ue_info)."""
     r = s.get(EVENT_DETAIL_URL, params={"NumEve": event_id, "DatSrc": date, "NomCal": nom_cal}, timeout=15)
     r.raise_for_status()
     check_asp_session(r.text)
-    return parse_event_trainers(r.text)
+    return r.text
+
+
+def fetch_event_trainers(s: requests.Session, event_id: str, date: str, nom_cal: str) -> list:
+    return parse_event_trainers(fetch_event_detail(s, event_id, date, nom_cal))
+
+
+EVENT_DETAIL_ROW_RE = re.compile(r"<B>\s*([^<]+?)\s*</B>\s*:\s*</TD>\s*<TD[^>]*>(.*?)</TD>", re.IGNORECASE | re.DOTALL)
+
+
+def parse_event_ue_info(page: str) -> dict:
+    """« Projets » (the UE as the agenda names it, e.g. "Projet A3S9 - B") and « Organismes »
+    (the groups taking it, sometimes carrying the UE code: "UETAF-CCU-B") from an
+    Eve-Det.asp answer. Like parse_event_trainers, never reads the students row."""
+    text = page.replace("\\/", "/").replace("\\'", "'")
+    info = {"projet": "", "organismes": []}
+    for label, cell in EVENT_DETAIL_ROW_RE.findall(text):
+        label = html.unescape(label)
+        if label.startswith("Projet"):
+            info["projet"] = _cell_text(cell)
+        elif label.startswith("Organisme"):
+            info["organismes"] = [o for o in (_cell_text(part) for part in BR_RE.split(cell)) if o]
+    return info
 
 
 def add_event_trainers(s: requests.Session, events: list, nom_cal: str, username: str | None = None) -> None:
@@ -608,6 +631,45 @@ def add_event_trainers(s: requests.Session, events: list, nom_cal: str, username
             e["teachers"] = fetch_event_trainers(s, e["id"], e["date"], nom_cal)
         except requests.RequestException as exc:
             logger.error("add_event_trainers: event %s failed (%r) — user=%s", e["id"], exc, username or "?")
+
+
+# « Consultation Fiches UE »: PASS's UE catalogues, the one place listing UE codes.
+UE_CATALOGUE_PAGE_URL = f"{BASE}/opdotnet/eplug/fpc/Offre/Portail/catalogues.aspx?intIdCatalogue="
+UE_SEARCH_URL = f"{BASE}/OpDotNet/Eplug/FPC/Offre/PaveCatalogue/resultSearch.aspx"
+UE_CATALOGUE_SELECT_RE = re.compile(r'<select[^>]*name="UcPaveCatalogue1\$lstCatalogue"[^>]*>(.*?)</select>',
+                                    re.IGNORECASE | re.DOTALL)
+OPTION_RE = re.compile(r'<option[^>]*value="(\d+)"[^>]*>(.*?)</option>', re.IGNORECASE | re.DOTALL)
+# Search result entries read "1 : FIP-TES310-BR - Transition Ecologique et Sociétale Dates : …".
+UE_SEARCH_ITEM_RE = re.compile(r"\d+ : ([A-Z0-9_-]+) - (.*?) Dates :")
+
+
+def list_ue_catalogues(s: requests.Session, username: str | None = None) -> list:
+    """(id, label) of every catalogue ("UE - Diplôme INGENIEUR FIP", "UE - TAF", …). The page
+    answers directly (0.5 s); going through the menu link first, as a browser does, costs
+    ~5 s more, so that's only the fallback when the list isn't there. LookupError (not
+    RuntimeError, which callers read as a dead session) when it's missing either way."""
+    r = s.get(UE_CATALOGUE_PAGE_URL, timeout=15)
+    r.raise_for_status()
+    m = UE_CATALOGUE_SELECT_RE.search(r.text)
+    if not m:
+        link = get_menu_link(s, "Consultation Fiches UE", username=username)
+        s.get(urljoin(BASE, link["url"]), timeout=15).raise_for_status()
+        r = s.get(UE_CATALOGUE_PAGE_URL, timeout=15)
+        r.raise_for_status()
+        m = UE_CATALOGUE_SELECT_RE.search(r.text)
+    if not m:
+        dump_path = _dump_debug_page("ue_catalogues", r.text, username)
+        raise LookupError(f"Liste des catalogues d'UE introuvable — la page a peut-être changé. "
+                          f"Page brute sauvée dans {dump_path}.")
+    return [(value, _cell_text(label)) for value, label in OPTION_RE.findall(m.group(1))]
+
+
+def search_ue_catalogues(s: requests.Session, term: str, catalogue_ids: list) -> list:
+    """(full code, UE name) of the entries matching `term` (3+ characters) in any of
+    `catalogue_ids` — the search page takes them comma-separated, one request for all."""
+    r = s.get(UE_SEARCH_URL, params={"strRecherche": term, "intIdCatalogue": ",".join(catalogue_ids)}, timeout=30)
+    r.raise_for_status()
+    return UE_SEARCH_ITEM_RE.findall(_cell_text(r.text))
 
 
 DOSSIER_FRAME_RE = re.compile(r"addFrame\('frm0','(IMTA_DossierEtudiant\.opx\?[^']+)'")

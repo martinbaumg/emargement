@@ -146,6 +146,22 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 @keyframes att-spin { to { transform: rotate(360deg); } }
 .fr-btn.att-loading::before{animation:att-spin 1s linear infinite}
 .fr-btn.att-loading{pointer-events:none}
+/* …with a rotating tongue-in-cheek line right by the button meanwhile, in the same small grey
+   type as the login steps. */
+.att-quip{margin:0;font-size:.875rem;line-height:1.5rem;color:var(--text-mention-grey);transition:opacity .15s}
+.att-quip--swap{opacity:0}
+/* Standalone button (« Remplir depuis PASS »): on the same row, after it. */
+.fr-btn + .att-quip{display:inline-block;margin-left:.75rem;vertical-align:middle}
+/* In a button group (« Réimporter depuis PASS »): beside the button when the row has room,
+   under it otherwise; bottom margin mirrors the button's so both stay centered. */
+.fr-btns-group>li.att-quip-host{flex-wrap:wrap;align-items:center}
+.fr-btns-group>li.att-quip-host>.att-quip{display:block;margin:0 .5rem 1rem}
+/* Desktop lessons toolbar: « Actualiser » sits against the right edge, so no room beside it —
+   the line hangs just under the button, right-aligned, out of the flow (no toolbar shift). */
+@media (min-width:62em){
+  .att-toolbar .fr-btns-group>li.att-quip-host{position:relative}
+  .att-toolbar .fr-btns-group>li.att-quip-host>.att-quip{position:absolute;top:100%;right:0;margin:-.75rem .5rem 0;white-space:nowrap}
+}
 
 /* Login: PASS sign-in + first load of the week take a while — indeterminate bar + step text. */
 .att-login-progress{margin-top:1.5rem}
@@ -258,12 +274,61 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
     link.textContent = addr;
   });
 
-  // The refresh buttons are plain links: spin until the next page replaces this one.
+  // The PASS buttons (refresh icon) each start a request lasting several seconds: spin
+  // until the next page replaces this one, and keep the wait light with a rotating quip.
+  // The quip is decorative (aria-hidden) — the button's aria-busy already says it's loading,
+  // and a line read aloud every 2.5 s would be noise.
+  var QUIPS = [
+    "C'est PASS qui rame, pas moi",
+    "Je tape poliment à la porte de PASS…",
+    "PASS cherche ses lunettes…",
+    "Toujours pas moi, promis. C'est PASS.",
+    "PASS réfléchit très fort…",
+    "Pendant ce temps, PASS finit son café",
+    "PASS trie ses fiches à la main…",
+    "Moi je suis prêt depuis longtemps, hein.",
+    "PASS arrive, à son rythme…",
+    "Si ça traîne, vous savez à qui vous plaindre (pas à moi)."
+  ];
+  var quip = null;
+  function startQuips(btn) {
+    if (quip) return;
+    var line = document.createElement("p");
+    line.className = "att-quip";
+    line.setAttribute("aria-hidden", "true");
+    var order = QUIPS.slice(1).sort(function() { return Math.random() - 0.5; });
+    order.unshift(QUIPS[0]);
+    var i = 0;
+    line.textContent = order[0];
+    btn.insertAdjacentElement("afterend", line);
+    var host = btn.parentElement.matches(".fr-btns-group > li") ? btn.parentElement : null;
+    if (host) host.classList.add("att-quip-host");
+    quip = {line: line, host: host, timer: setInterval(function() {
+      i = (i + 1) % order.length;
+      line.classList.add("att-quip--swap");
+      setTimeout(function() { line.textContent = order[i]; line.classList.remove("att-quip--swap"); }, 150);
+    }, 2500)};
+  }
+  // Why not simply follow the link: once a navigation is pending, browsers (Safari notably)
+  // freeze the page being left — CSS animations go on, but timers stop, so the quip would
+  // never change. The slow request runs in the background instead, the page staying live,
+  // and only then do we go to data-att-then, now fast since the work is done server-side.
+  // redirect:"manual": the page the server redirects to shows the flash message, so it must
+  // be loaded by that real navigation, not consumed by fetch. Any failure: plain fallback.
+  window.attRunThenGo = function(request, thenUrl, fallback) {
+    request.then(function() { window.location.href = thenUrl; }, fallback);
+  };
   document.querySelectorAll(".fr-btn.fr-icon-refresh-line").forEach(function(btn) {
     btn.addEventListener("click", function(ev) {
       if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;  // new tab: nothing to wait for here
       btn.classList.add("att-loading");
       btn.setAttribute("aria-busy", "true");
+      startQuips(btn);
+      if (btn.tagName === "A" && btn.dataset.attThen) {
+        ev.preventDefault();
+        window.attRunThenGo(fetch(btn.href, {credentials: "same-origin", redirect: "manual"}), btn.dataset.attThen,
+                            function() { window.location.href = btn.href; });
+      }
     });
   });
   // Back/forward cache restores the page exactly as left, i.e. still spinning.
@@ -273,6 +338,12 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
       btn.classList.remove("att-loading");
       btn.removeAttribute("aria-busy");
     });
+    if (quip) {
+      clearInterval(quip.timer);
+      quip.line.remove();
+      if (quip.host) quip.host.classList.remove("att-quip-host");
+      quip = null;
+    }
   });
 })();
 </script>

@@ -12,9 +12,9 @@ from app import app
 from csrf import check_csrf, generate_csrf
 from db import get_db
 from layout import fip_dsfr_css, render
-from lesson_utils import (_time_bounds, merge_contiguous_lessons, parse_ue_table, short_teacher_name,
-                          teacher_names, ue_code_for)
-from pass_session import LIVE_SESSIONS, current_pass_session, fetch_events_cached, week_fetched
+from lesson_utils import (_time_bounds, merge_contiguous_lessons, merge_ue_suggestions, parse_ue_table,
+                          short_teacher_name, teacher_names, ue_code_for)
+from pass_session import LIVE_SESSIONS, current_pass_session, fetch_events_cached, suggest_ue_codes, week_fetched
 
 # ---------------------------------------------------------------- student side
 
@@ -65,7 +65,7 @@ LOGIN_TEMPLATE = """
     var label = btn.textContent;
     var steps = [
         [0, "Connexion à PASS…"],
-        [2000, "Si c'est long, c'est PASS qui traîne, pas moi 🐢"],
+        [2000, "Si c'est long, c'est PASS qui traîne, pas moi"],
         [6000, "Récupération de votre emploi du temps…"],
         [12000, "Récupération des intervenants de chaque cours…"],
         [25000, "Encore quelques secondes, PASS est parfois lent…"]
@@ -73,7 +73,22 @@ LOGIN_TEMPLATE = """
     var timers = [];
 
     form.addEventListener("submit", function (ev) {
-        if (btn.classList.contains("att-loading")) { ev.preventDefault(); return; }  // Enter pressed again
+        ev.preventDefault();
+        if (btn.classList.contains("att-loading")) return;  // Enter pressed again
+        // Same reason as the PASS buttons (layout's attRunThenGo): a pending navigation freezes
+        // this page's timers, so the steps would never move. Log in, then load the first week,
+        // both in the background; then open /lessons, served from the now-filled cache. A
+        // non-redirect answer is the form again with an error: shown as is.
+        var data = new FormData(form);
+        var lessonsUrl = "{{ url_for('lessons') }}";
+        fetch(form.action || window.location.href, {method: "POST", body: data, credentials: "same-origin", redirect: "manual"})
+            .then(function (res) {
+                if (res.type === "opaqueredirect") {
+                    return fetch(lessonsUrl, {credentials: "same-origin"}).then(function () { window.location.href = lessonsUrl; });
+                }
+                return res.text().then(function (page) { document.open(); document.write(page); document.close(); });
+            })
+            .catch(function () { form.submit(); });
         btn.classList.replace("fr-icon-lock-line", "fr-icon-refresh-line");
         btn.classList.add("att-loading");
         btn.setAttribute("aria-busy", "true");
@@ -201,7 +216,10 @@ def lessons():
     except RuntimeError:
         return _expire_pass_session()
     if force:
+        # Post/redirect/get: a reload of the resulting page must not refresh from PASS again,
+        # and the refresh button (layout's attRunThenGo) lands on this plain week URL.
         session["_flash"] = "Cours réactualisés depuis PASS."
+        return redirect(url_for("lessons", week=week_offset))
     week_loaded = week_fetched(username, week_ref)
 
     excluded_ids, excluded_titles = _exclusions(get_db(), username)
@@ -284,7 +302,8 @@ def lessons():
                 <a class="fr-btn fr-icon-file-pdf-line" href="{{ url_for('export_pdf', week=week_offset) }}">Télécharger la feuille d'émargement</a>
             </li>
             <li>
-                <a class="fr-btn fr-btn--secondary fr-icon-refresh-line" href="{{ url_for('lessons', week=week_offset, refresh=1) }}">Actualiser depuis PASS</a>
+                <a class="fr-btn fr-btn--secondary fr-icon-refresh-line" href="{{ url_for('lessons', week=week_offset, refresh=1) }}"
+                   data-att-then="{{ url_for('lessons', week=week_offset) }}">Actualiser depuis PASS</a>
             </li>
         </ul>
         </div>
@@ -570,6 +589,8 @@ def profile():
         except Exception:
             dossier = {}
         p.update({k: v for k, v in dossier.items() if v})
+    # « Remplir depuis PASS » hands the form back as it was posted, not saved (see profile_ue_import).
+    p.update(session.pop("_profile_draft", None) or {})
 
     return render(
         """
@@ -578,7 +599,8 @@ def profile():
         formation et TAF sont pré-remplis depuis votre dossier étudiant PASS.</p>
         <ul class="fr-btns-group fr-btns-group--inline-md fr-btns-group--icon-left">
             <li>
-                <a class="fr-btn fr-btn--secondary fr-icon-refresh-line" href="{{ url_for('profile_import') }}">Réimporter depuis PASS</a>
+                <a class="fr-btn fr-btn--secondary fr-icon-refresh-line" href="{{ url_for('profile_import') }}"
+                   data-att-then="{{ url_for('profile') }}">Réimporter depuis PASS</a>
             </li>
         </ul>
         <form method=post>
@@ -613,10 +635,15 @@ def profile():
             <div class="fr-input-group">
                 <label class="fr-label" for="ue_table">Table des UE
                     <span class="fr-hint-text">Une par ligne, "Nom = CODE" — sert à la table de référence et
-                    au remplissage automatique du CODE UE quand le titre d'un cours correspond (optionnel).</span>
+                    au remplissage automatique du CODE UE quand le titre d'un cours correspond (optionnel).
+                    « Remplir depuis PASS » ajoute les UE de vos cours chargés ; les lignes commençant par # sont ignorées.</span>
                 </label>
                 <textarea class="fr-input" id="ue_table" name="ue_table" rows=6
                     placeholder="DevOps = DEVOPS&#10;Protocols for the Transport of Information = PTRANSINF">{{ p.ue_table }}</textarea>
+                {# type=button, not submit: Enter in a field must keep meaning « Enregistrer ». #}
+                <button type="button" id="att-ue-import" data-action="{{ url_for('profile_ue_import') }}"
+                    data-att-then="{{ url_for('profile') }}"
+                    class="fr-btn fr-btn--secondary fr-btn--sm fr-btn--icon-left fr-icon-refresh-line fr-mt-1w">Remplir depuis PASS</button>
             </div>
             <div class="fr-toggle fr-mb-3w">
                 <input type="checkbox" class="fr-toggle__input" id="show_total_hours" name="show_total_hours" value="1"
@@ -641,6 +668,19 @@ def profile():
                 <li><button type=submit class="fr-btn">Enregistrer</button></li>
             </ul>
         </form>
+        <script>
+        // Posts the form as it stands (unsaved edits included) to the import route instead of
+        // saving it — in the background, like the other PASS buttons (layout's attRunThenGo),
+        // then shows the pre-filled form. No constraint validation: the import doesn't need
+        // the required fields. Fallback: a plain submission to the import route.
+        document.getElementById("att-ue-import").addEventListener("click", function () {
+            var btn = this, form = btn.form;
+            window.attRunThenGo(
+                fetch(btn.dataset.action, {method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual"}),
+                btn.dataset.attThen,
+                function () { form.action = btn.dataset.action; form.submit(); });
+        });
+        </script>
         """,
         p=p,
         csrf_token=generate_csrf(),
@@ -679,6 +719,55 @@ def profile_import():
     )
     db.commit()
     session["_flash"] = "NOM / PRENOM / FORMATION / TAF importés depuis PASS."
+    return redirect(url_for("profile"))
+
+
+PROFILE_TEXT_FIELDS = ("nom", "prenom", "formation", "taf", "campus", "ue_table")
+PROFILE_SWITCHES = ("show_total_hours", "show_teacher_names", "is_fip")
+
+
+@app.route("/profile/ue-import", methods=["POST"])
+def profile_ue_import():
+    """« Remplir depuis PASS »: completes the UE table with the codes PASS knows for the
+    student's cached lessons (pass_session.suggest_ue_codes, merged by merge_ue_suggestions).
+    Nothing is saved — the form comes back as posted, table completed, to check and save."""
+    s = current_pass_session()
+    if not s:
+        return redirect(url_for("login"))
+    if not check_csrf():
+        session["_flash"] = "Session expirée, réessayez."
+        return redirect(url_for("profile"))
+    username = session["username"]
+    draft = {k: request.form.get(k, "").strip() for k in PROFILE_TEXT_FIELDS}
+    draft.update({k: 1 if request.form.get(k) else 0 for k in PROFILE_SWITCHES})
+
+    has_lessons = get_db().execute("SELECT 1 FROM lessons_cache WHERE owner_username=? LIMIT 1", (username,)).fetchone()
+    if not has_lessons:
+        session["_profile_draft"] = draft
+        session["_flash"] = "Aucun cours chargé : ouvrez d'abord la page « Cours » et actualisez depuis PASS."
+        return redirect(url_for("profile"))
+    try:
+        ps.check_session_alive(s)
+        suggestions = suggest_ue_codes(s, username, draft["formation"])
+    except RuntimeError:  # check_session_alive / check_asp_session: PASS session gone
+        return _expire_pass_session()
+    except (LookupError, requests.RequestException) as e:
+        app.logger.error("UE import failed user=%s: %r", username, e)
+        session["_profile_draft"] = draft
+        session["_flash"] = f"Import des codes UE depuis PASS échoué : {e}"
+        return redirect(url_for("profile"))
+
+    draft["ue_table"], added, to_complete = merge_ue_suggestions(draft["ue_table"], suggestions)
+    session["_profile_draft"] = draft
+    if added or to_complete:
+        parts = [f"{added} UE ajoutée(s) depuis PASS"]
+        if to_complete:
+            parts.append(f"{to_complete} à compléter (lignes commençant par #)")
+        session["_flash"] = ", ".join(parts) + ". Vérifiez la table puis cliquez sur « Enregistrer »."
+    elif suggestions:
+        session["_flash"] = "Toutes les UE de vos cours sont déjà dans la table."
+    else:
+        session["_flash"] = "Aucune UE reconnue dans vos cours chargés."
     return redirect(url_for("profile"))
 
 

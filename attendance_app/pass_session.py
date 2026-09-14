@@ -8,7 +8,8 @@ from flask import session
 
 import db as dbmod
 import pass_schedule as ps
-from lesson_utils import cache_lessons
+from lesson_utils import (cache_lessons, is_ue_project, normalized_words, organism_ue_code, ue_name_distance,
+                          ue_name_from_projet, ue_names_match, ue_search_term, ue_short_code)
 
 # token -> live authenticated requests.Session — an in-memory hot cache in front of the
 # `live_sessions` DB table (see current_pass_session()), so a Flask reload/restart doesn't
@@ -94,6 +95,80 @@ def fetch_events_cached(s: requests.Session, username: str, force: bool = False,
         )
         db.commit()
     return events
+
+
+def suggest_ue_codes(s: requests.Session, username: str, formation: str = "") -> list:
+    """One {"name", "code", "alternatives"} per UE among the student's cached lessons, for
+    « Remplir depuis PASS ». For one lesson per course (title before " - "):
+      1. its PASS popup gives the UE name (« Projets ») and sometimes the code itself in
+         « Organismes » ("UETAF-CCU-B") — taken as is;
+      2. otherwise the UE catalogues are searched, those of the student's formation and TAF
+         first, then all others ("Projet S9" = P3AS9 only exists in FISE24's), keeping only
+         entries whose name really matches the UE (ue_names_match). Several distinct codes
+         -> first one plus "alternatives"; none -> code "".
+    Several dozen requests: only ever run on the student's explicit click."""
+    db = dbmod.get_db()
+    samples = {}
+    for row in db.execute("SELECT lesson_id, date, title FROM lessons_cache WHERE owner_username=? "
+                          "ORDER BY date DESC", (username,)):
+        # One lesson per UE, decided before any request: "Transition Ecologique et Sociétale B"
+        # and "… R" are the same UE, and school events ("Activités rentrée") have no code.
+        name = ue_name_from_projet(row["title"].split(" - ")[0])
+        if is_ue_project(name):
+            samples.setdefault(" ".join(normalized_words(name)), row)
+    if not samples:
+        return []
+
+    agenda_url = ps.bridge_to_classic_asp(s, ps.get_agenda_link(s, username=username), username=username)
+    # Only NomCal is needed here: try the agenda page as PASS serves it first — forcing the
+    # Tableau view (what fetch_week_events needs) re-renders a whole month, ~20 s on PASS.
+    m = (ps.AGENDA_NOMCAL_RE.search(ps.fetch_agenda_html(s, agenda_url, username=username, view=None))
+         or ps.AGENDA_NOMCAL_RE.search(ps.fetch_agenda_html(s, agenda_url, username=username)))
+    if not m:
+        raise LookupError("Identifiant d'agenda (NomCal) introuvable sur la page agenda PASS.")
+    nom_cal = m.group(1)
+
+    catalogues = [(cid, label) for cid, label in ps.list_ue_catalogues(s, username)
+                  if normalized_words(label)[:1] == ["ue"]]  # not "PERIODE - …" nor archived "Z-UE - …"
+    wanted = {w for w in normalized_words(formation) if w.isalpha() and len(w) >= 3} | {"taf"}
+    preferred = [cid for cid, label in catalogues if set(normalized_words(label)) & wanted]
+    others = [cid for cid, _ in catalogues if cid not in preferred]
+
+    suggestions, seen = [], set()
+    for row in samples.values():
+        try:
+            info = ps.parse_event_ue_info(ps.fetch_event_detail(s, row["lesson_id"], row["date"], nom_cal))
+        except requests.RequestException:
+            info = {"projet": "", "organismes": []}
+        name = ue_name_from_projet(info["projet"] or row["title"].split(" - ")[0])
+        key = " ".join(normalized_words(name))
+        if not key or key in seen or not is_ue_project(name):
+            continue
+        seen.add(key)
+
+        codes = list(dict.fromkeys(c for c in map(organism_ue_code, info["organismes"]) if c))
+        if len(codes) == 1:
+            suggestions.append({"name": name, "code": codes[0], "alternatives": []})
+            continue
+
+        matches, term = [], ue_search_term(name)
+        for tier in (preferred, others):
+            if term and tier:
+                matches = [(ue_short_code(full), label) for full, label in ps.search_ue_catalogues(s, term, tier)
+                           if ue_names_match(name, label)]
+            if matches:
+                break
+        if matches:
+            # Closest names only: "Transition Ecologique et Sociétale" also matches
+            # "Ingénieur.e responsable & Transitions Ecologique et Sociétale" (ING150), which
+            # must not come before — nor even beside — the exact TES310 / TES390 entries.
+            best = min(ue_name_distance(name, label) for _, label in matches)
+            matches = [(code, label) for code, label in matches if ue_name_distance(name, label) == best]
+        by_code = dict(reversed(matches))  # first label seen for each code, in PASS's order
+        ordered = list(dict.fromkeys(code for code, _ in matches))
+        suggestions.append({"name": name, "code": ordered[0] if ordered else "",
+                            "alternatives": [(code, by_code[code]) for code in ordered[1:]]})
+    return suggestions
 
 
 def current_pass_session() -> requests.Session | None:

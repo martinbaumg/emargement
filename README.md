@@ -24,7 +24,7 @@ laissées vides. Le nom de l'intervenant reste pré-rempli depuis PASS (voir ci-
 ### Nom des intervenants
 
 Les vues de l'agenda PASS (Tableau, Semaine…) n'indiquent pas les intervenants. Ils ne figurent
-que dans la fiche détaillée d'une séance, celle qui s'ouvre au survol de l'icône 📁
+que dans la fiche détaillée d'une séance, celle qui s'ouvre au survol de l'icône en forme de dossier
 (`Eplug/Agenda/Eve-Det.asp`). « Actualiser depuis PASS » charge donc cette fiche pour chaque
 séance de la semaine et en retient la liste « Formateur(s) », affichée sur la page des cours et
 dans la colonne « Nom intervenant » du PDF. La liste des apprenants, présente dans la même fiche,
@@ -73,6 +73,20 @@ cours dont le titre PASS contient ce nom :
 
 Il n'y a pas de correspondance approximative : un cours sans correspondance exacte garde une case
 vide plutôt qu'un code faux.
+
+Le bouton « Remplir depuis PASS », sous la table, la complète avec les codes que PASS connaît pour
+les cours déjà chargés :
+
+1. pour un cours de chaque intitulé, la fiche de séance donne le nom de l'UE (« Projets ») et
+   parfois directement son code (« Organismes » `UETAF-CCU-B` → `CCU`) ;
+2. sinon, le code est cherché dans « Consultation Fiches UE » : catalogues de la formation du
+   profil et de TAF d'abord, puis tous les autres ; seul un résultat dont le nom correspond
+   vraiment à l'UE est retenu (`FIP-TES310-BR - Transition Ecologique et Sociétale` → `TES310`).
+
+Les lignes déjà présentes ont toujours la priorité. Quand PASS propose plusieurs codes, le premier
+est ajouté et les autres sont notés en commentaire (`# …`, ignoré) ; une UE sans code trouvé est
+ajoutée en commentaire « à compléter ». Rien n'est enregistré : la table revient pré-remplie, à
+vérifier avant « Enregistrer ».
 
 ### Thème FIP
 

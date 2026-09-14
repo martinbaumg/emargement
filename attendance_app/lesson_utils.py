@@ -77,7 +77,7 @@ def parse_ue_table(text: str) -> list:
     PDF's reference table; the others are only extra keywords for matching."""
     table = []
     for line in text.splitlines():
-        if "=" in line:
+        if "=" in line and not line.lstrip().startswith("#"):  # "# …" lines are notes
             names, code = line.split("=", 1)
             table.append(([n.strip() for n in names.split("|") if n.strip()], code.strip()))
     return table
@@ -151,6 +151,86 @@ def ue_code_for(events: list, ue_table: list) -> str:
                         [_stem(w) for w in normalized_words(d)] == words for d in ev["details"]):
                     return code
     return ""
+
+
+def ue_short_code(full_code: str) -> str:
+    """PASS catalogue / organism code -> the UE code the sheet wants: the segment before the
+    campus suffix. "FIP-TES310-BR" -> "TES310", "PA-DI-CCU-B" -> "CCU", "UETAF-OBJENV-B" -> "OBJENV"."""
+    parts = [p for p in full_code.split("-") if p]
+    return parts[-2] if len(parts) >= 2 else full_code
+
+
+def organism_ue_code(organism: str) -> str:
+    """UE code carried by an « Organismes » group name ("UETAF-CCU-B" -> "CCU"), else ""
+    — most groups are just cohorts ("FIP A3 BREST")."""
+    return ue_short_code(organism) if re.fullmatch(r"UE[A-Z]*-[A-Z0-9]+-[A-Z]+", organism) else ""
+
+
+def ue_name_from_projet(projet: str) -> str:
+    """Agenda « Projets » -> the UE's own name, group/campus suffixes dropped:
+    "Transition Ecologique et Sociétale B" -> "Transition Ecologique et Sociétale",
+    "Projet A3S9 - B" -> "Projet A3S9", "Anglais S9 B - C1" -> "Anglais S9",
+    "LV-Anglais-A2S7-B" -> "LV-Anglais-A2S7"."""
+    name = re.split(r"\s+-\s+", projet.strip())[0]
+    return re.sub(r"(?:[\s-][A-Z])+$", "", name).strip()
+
+
+# Agenda « Projets » that are school events, not UEs: no code to look for.
+NON_UE_PROJECT_WORDS = {_stem(w) for w in ("activites", "evenements", "presentation", "rattrapages")}
+
+
+def is_ue_project(name: str) -> bool:
+    words = normalized_words(name)
+    return bool(words) and _stem(words[0]) not in NON_UE_PROJECT_WORDS
+
+
+def ue_names_match(a: str, b: str) -> bool:
+    """Same UE under two spellings (agenda vs catalogue: "Anglais S9" / "Anglais A3S9",
+    "Projet A3S9" / "Projet S9"), tried both ways with ue_code_for's tolerant matching."""
+    as_title = lambda title: [{"title": title, "details": []}]
+    return bool(ue_code_for(as_title(b), [([a], "x")]) or ue_code_for(as_title(a), [([b], "x")]))
+
+
+def ue_name_distance(a: str, b: str) -> int:
+    """How far two (matching) UE names are: significant words found in only one of them,
+    compared flat. 0 for the same name spelled differently."""
+    words = lambda s: {_stem(w) for w in normalized_words(s) if w not in UE_STOPWORDS}
+    return len(words(a) ^ words(b))
+
+
+def ue_search_term(name: str) -> str:
+    """Longest plain word of a UE name, for PASS's catalogue search (substring, 3+ letters):
+    "Projet A3S9" -> "Projet", "Conception centrée utilisateur" -> "utilisateur"."""
+    words = re.findall(r"[^\W\d_]{3,}", name)
+    return max(words, key=len) if words else ""
+
+
+def merge_ue_suggestions(existing_text: str, suggestions: list) -> tuple:
+    """Existing « Table des UE » + PASS suggestions ({"name", "code", "alternatives"}) ->
+    (text, added, to_complete). The student's own lines always win: a suggestion is dropped
+    when its code is already in the table, or when the table already gives its UE a code.
+    Doubts become "# …" notes (ignored by parse_ue_table) for the student to settle."""
+    table = parse_ue_table(existing_text)
+    known_codes = {code.casefold() for _, code in table if code}
+    lines, added, to_complete = [], 0, 0
+    for sug in suggestions:
+        if sug["code"] and sug["code"].casefold() in known_codes:
+            continue
+        if ue_code_for([{"title": sug["name"], "details": []}], table):
+            continue
+        if sug["code"]:
+            lines += [f"# {sug['name']} : PASS propose aussi {code} ({name})" for code, name in sug["alternatives"]]
+            lines.append(f"{sug['name']} = {sug['code']}")
+            known_codes.add(sug["code"].casefold())
+            added += 1
+        else:
+            lines.append(f"# À compléter, code introuvable dans PASS : {sug['name']} = ")
+            to_complete += 1
+    if not lines:
+        return existing_text, 0, 0
+    base = existing_text.rstrip()
+    block = "\n".join(["# Ajouté depuis PASS — à vérifier avant d'enregistrer"] + lines)
+    return (f"{base}\n{block}" if base else block), added, to_complete
 
 
 def cache_lessons(db, owner_username, events):

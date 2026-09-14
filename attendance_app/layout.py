@@ -86,6 +86,16 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 .fr-btn.att-loading::before{animation:att-spin 1s linear infinite}
 .fr-btn.att-loading{pointer-events:none}
 
+/* Login: PASS sign-in + first load of the week take a while — indeterminate bar + step text. */
+.att-login-progress{margin-top:1.5rem}
+.att-login-progress[hidden]{display:none}
+.att-progress{position:relative;height:.25rem;overflow:hidden;border-radius:.125rem;background:var(--background-default-grey)}
+.att-progress::before{content:"";position:absolute;top:0;bottom:0;left:0;width:40%;border-radius:.125rem;background:var(--background-action-high-blue-france);animation:att-progress 1.4s ease-in-out infinite}
+@keyframes att-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion:reduce){
+  .att-progress::before{animation:none;width:100%;opacity:.6}
+}
+
 @media (max-width:47.98em){
   .att-login-btn{width:100%;justify-content:center}
   .fr-callout{padding:1.25rem}
@@ -167,13 +177,10 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
         <a class="fr-footer__content-link" href="https://www.systeme-de-design.gouv.fr/" target="_blank" rel="noopener noreferrer external">Système de Design de l'État</a>.</p>
         <ul class="fr-footer__content-list">
           <li class="fr-footer__content-item">
-            <a class="fr-footer__content-link" href="https://github.com/outout14/esignature" target="_blank" rel="noopener noreferrer external">Code source</a>
+            <a class="fr-footer__content-link" href="https://github.com/martinbaumg/emargement" target="_blank" rel="noopener noreferrer external">Code source</a>
           </li>
           <li class="fr-footer__content-item">
             <a class="fr-footer__content-link att-contact-link" data-enc="Y29udGFjdEBiYXVtZ2FlcnRuZXIuZnI=" href="#">Contact</a>
-          </li>
-          <li class="fr-footer__content-item">
-            <a class="fr-footer__content-link att-contact-link" data-enc="bWFlbEBlbnBscy5vcmc=" href="#">Contact</a>
           </li>
         </ul>
       </div>

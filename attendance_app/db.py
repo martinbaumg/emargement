@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     campus TEXT NOT NULL DEFAULT '',
     apprentissage INTEGER NOT NULL DEFAULT 0,
     ue_table TEXT NOT NULL DEFAULT '',
-    show_total_hours INTEGER NOT NULL DEFAULT 1,
+    show_total_hours INTEGER NOT NULL DEFAULT 0,
     show_teacher_names INTEGER NOT NULL DEFAULT 1
 );
 -- Sessions the student left off the PDF (e.g. « Travail Autonomie » slots, which need

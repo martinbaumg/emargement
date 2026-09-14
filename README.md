@@ -5,15 +5,11 @@ L'étudiant se connecte avec ses identifiants PASS, l'application récupère son
 de la semaine et génère la feuille d'émargement PDF pré-remplie, à imprimer et à faire signer
 à la main.
 
-Ce dépôt est un fork de [outout14/esignature](https://github.com/outout14/esignature), créé par
-Mael Gramain. Le scraper PASS, la génération du PDF et l'interface au Système de Design de l'État
-(DSFR) viennent de ce projet. Les modifications apportées sont décrites ci-dessous.
-
-## Modifications par rapport à esignature
+## Modifications
 
 ### Signature électronique retirée
 
-Dans le projet d'origine, chaque cours pouvait être signé dans l'application : l'étudiant dessinait
+Auparavant, chaque cours pouvait être signé dans l'application : l'étudiant dessinait
 sa signature, et l'intervenant signait via un lien public `/sign/<token>` ou un QR code, sans
 compte. La feuille doit de toute façon être signée à la main, donc tout ce circuit a été retiré :
 
@@ -59,7 +55,7 @@ message l'indique au lieu de générer un PDF vide.
 ### Total des heures au choix
 
 Dans « Profil », l'interrupteur « Remplir le total des heures de formation sur le PDF » permet de
-laisser la case « Total heures de formation » vide, pour la remplir à la main. Il est activé par
+laisser la case « Total heures de formation » vide, pour la remplir à la main. Il est désactivé par
 défaut.
 
 ### Interface repensée pour le téléphone
@@ -80,7 +76,7 @@ défaut.
 ### Divers
 
 - DSFR mis à jour de 1.15.2 à 1.15.3.
-- Pied de page : lien vers le code source d'origine et contacts des deux auteurs.
+- Pied de page : lien vers le code source et adresse de contact.
 - `build-and-push.sh` publie l'image sur `ghcr.io/martinbaumg/emargement`.
 
 ## Mise à jour d'une installation existante

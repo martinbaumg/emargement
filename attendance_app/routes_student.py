@@ -24,7 +24,7 @@ LOGIN_TEMPLATE = """
             <h1 class="fr-callout__title fr-h4">Connexion à votre espace</h1>
             <p class="fr-text--sm fr-mb-3w">Utilisez vos identifiants PASS IMT-Atlantique</p>
             {% if err %}<div class="fr-alert fr-alert--error fr-mb-3w"><p>{{ err }}</p></div>{% endif %}
-            <form method=post>
+            <form method=post id="att-login-form">
                 <input type=hidden name="csrf_token" value="{{ csrf_token }}">
                 <div class="fr-input-group">
                     <label class="fr-label" for="username">Identifiant</label>
@@ -44,9 +44,61 @@ LOGIN_TEMPLATE = """
                 </div>
                 <button type=submit class="fr-btn fr-btn--icon-left fr-icon-lock-line fr-mt-2w att-login-btn">Se connecter</button>
             </form>
+            <div class="att-login-progress" id="att-login-progress" role="status" aria-live="polite" hidden>
+                <div class="att-progress"></div>
+                <p class="fr-text--sm fr-mt-1w fr-mb-0" id="att-login-step"></p>
+            </div>
         </div>
     </div>
 </div>
+<script>
+(function () {
+    // Signing in to PASS, then loading the current week (agenda + one detail popup per
+    // course), runs before the next page arrives — tens of seconds with nothing but the
+    // browser's own spinner. The steps are timed, not reported by the server: they only
+    // say what is happening in that order, never claim a step is done.
+    var form = document.getElementById("att-login-form");
+    var btn = form.querySelector("button[type=submit]");
+    var progress = document.getElementById("att-login-progress");
+    var step = document.getElementById("att-login-step");
+    var label = btn.textContent;
+    var steps = [
+        [0, "Connexion à PASS…"],
+        [4000, "Récupération de votre emploi du temps…"],
+        [10000, "Récupération des intervenants de chaque cours…"],
+        [25000, "Encore quelques secondes, PASS est parfois lent…"]
+    ];
+    var timers = [];
+
+    form.addEventListener("submit", function (ev) {
+        if (btn.classList.contains("att-loading")) { ev.preventDefault(); return; }  // Enter pressed again
+        btn.classList.replace("fr-icon-lock-line", "fr-icon-refresh-line");
+        btn.classList.add("att-loading");
+        btn.setAttribute("aria-busy", "true");
+        btn.textContent = "Connexion en cours…";
+        // readOnly, not disabled: disabled fields would be left out of the POST.
+        form.querySelectorAll(".fr-input").forEach(function (input) { input.readOnly = true; });
+        progress.hidden = false;
+        steps.forEach(function (s) {
+            timers.push(setTimeout(function () { step.textContent = s[1]; }, s[0]));
+        });
+    });
+
+    // Back/forward cache restores the page mid-loading: put the form back.
+    window.addEventListener("pageshow", function (ev) {
+        if (!ev.persisted) return;
+        timers.forEach(clearTimeout);
+        timers = [];
+        btn.classList.remove("att-loading");
+        btn.classList.replace("fr-icon-refresh-line", "fr-icon-lock-line");
+        btn.removeAttribute("aria-busy");
+        btn.textContent = label;
+        form.querySelectorAll(".fr-input").forEach(function (input) { input.readOnly = false; });
+        progress.hidden = true;
+        step.textContent = "";
+    });
+})();
+</script>
 """
 
 
@@ -499,7 +551,7 @@ def profile():
         p = dict(row)
     else:
         p = {"nom": "", "prenom": "", "formation": "", "taf": "",
-             "campus": "BREST", "apprentissage": 1, "ue_table": "", "show_total_hours": 1,
+             "campus": "BREST", "apprentissage": 1, "ue_table": "", "show_total_hours": 0,
              "show_teacher_names": 1}
         try:
             dossier = ps.fetch_dossier(s, username=username)
@@ -595,13 +647,16 @@ def profile_import():
     merged = {**existing, **{k: v for k, v in dossier.items() if v}}
 
     db.execute(
-        "INSERT INTO profiles (owner_username, nom, prenom, formation, taf, campus, apprentissage, ue_table) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        # show_total_hours spelled out: a table migrated from an older schema still carries
+        # that column's former DEFAULT 1 (SQLite can't alter a column default in place).
+        "INSERT INTO profiles (owner_username, nom, prenom, formation, taf, campus, apprentissage, ue_table, "
+        "show_total_hours) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(owner_username) DO UPDATE SET nom=excluded.nom, prenom=excluded.prenom, "
         "formation=excluded.formation, taf=excluded.taf",
         (username, merged.get("nom", ""), merged.get("prenom", ""), merged.get("formation", ""),
          merged.get("taf", ""), existing.get("campus", ""), existing.get("apprentissage", 1),
-         existing.get("ue_table", "")),
+         existing.get("ue_table", ""), existing.get("show_total_hours", 0)),
     )
     db.commit()
     session["_flash"] = "NOM / PRENOM / FORMATION / TAF importés depuis PASS."
@@ -710,7 +765,7 @@ def export_pdf():
         profile_dict, week_start, week_end, str(week_number), lessons_for_pdf,
         ue_table=ue_table,
         total_hours=pdf_export.format_hours(total_hours) if total_hours else "",
-        show_total_hours=bool(profile_dict.get("show_total_hours", 1)),
+        show_total_hours=bool(profile_dict.get("show_total_hours", 0)),
     )
     filename = f"emargement_{profile_dict['nom']}_{min(dates).strftime('%Y%m%d')}.pdf"
     return Response(

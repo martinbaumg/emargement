@@ -249,9 +249,9 @@ def lessons():
         start, end = _time_bounds(e["time"]) if ps.TIME_RE.match(e["time"]) else (0, 0)
         e["minutes"] = end - start
     excluded_count = sum(1 for e in events if e["excluded"])
-    included = [e for e in events if not e["excluded"]]
-    total_label = pdf_export.format_hours(sum(e["minutes"] for e in included) / 60)
-    missing_code_count = sum(1 for e in included if not e["code_ue"])
+    # Whole week, excluded sessions included — the same total as the PDF (see export_pdf).
+    total_label = pdf_export.format_hours(sum(e["minutes"] for e in events) / 60)
+    missing_code_count = sum(1 for e in events if not e["excluded"] and not e["code_ue"])
 
     today_str = datetime.date.today().strftime("%Y%m%d")
     monday, sunday = ps.week_bounds(week_ref)
@@ -342,7 +342,7 @@ def lessons():
         {% if days %}
         {# Kept current by the script below when a session is toggled in or out of the PDF. #}
         <p class="fr-text--sm att-details fr-mb-2w att-week-summary" id="att-week-summary" aria-live="polite">
-            <span>Total sur le PDF : <strong class="att-week-summary__total" data-summary="total">{{ total_label }}</strong></span>
+            <span>Total de la semaine : <strong class="att-week-summary__total">{{ total_label }}</strong></span>
             <span data-summary="excluded" {{ '' if excluded_count else 'hidden' }}><span data-summary-count>{{ excluded_count }}</span> séance(s) exclue(s)</span>
             <span data-summary="missing" {{ '' if missing_code_count else 'hidden' }}><span data-summary-count>{{ missing_code_count }}</span> séance(s) sans code UE
                 (<a class="fr-link fr-link--sm" href="{{ url_for('profile') }}#ue_table">compléter la table des UE</a>)</span>
@@ -411,7 +411,7 @@ def lessons():
                 <tbody>
                 {% for e in day.lessons %}
                 <tr class="{{ 'att-excluded' if e.excluded else '' }}" data-lesson-row="{{ e.id }}"
-                    data-minutes="{{ e.minutes }}" data-has-code="{{ '1' if e.code_ue else '' }}">
+                    data-has-code="{{ '1' if e.code_ue else '' }}">
                     <td>{{ e.time_label }}</td>
                     <td>{{ e.title }}{{ ue_badge(e) }}</td>
                     <td><span class="att-details">{{ e.teacher or '—' }}</span></td>
@@ -460,18 +460,15 @@ def lessons():
             // Saves each toggle in place; falls back to a normal form post (full reload) if
             // the request fails, so the PDF never silently disagrees with what's shown.
             var summary = document.getElementById('att-week-summary');
-            // Recomputed from the table copy of each session (always in the DOM, even when
-            // hidden on phones): data-minutes / data-has-code, and whether it's excluded.
+            // Counts recomputed from the table copy of each session (always in the DOM, even when
+            // hidden on phones). The week total doesn't move: it includes excluded sessions.
             function refreshSummary() {
                 if (!summary) return;
-                var minutes = 0, excluded = 0, missing = 0;
+                var excluded = 0, missing = 0;
                 document.querySelectorAll('.att-lessons-table tr[data-lesson-row]').forEach(function (row) {
                     if (row.classList.contains('att-excluded')) { excluded++; return; }
-                    minutes += parseInt(row.dataset.minutes, 10) || 0;
                     if (!row.dataset.hasCode) missing++;
                 });
-                summary.querySelector('[data-summary="total"]').textContent =
-                    Math.floor(minutes / 60) + 'h' + String(minutes % 60).padStart(2, '0');
                 [['excluded', excluded], ['missing', missing]].forEach(function (part) {
                     var el = summary.querySelector('[data-summary="' + part[0] + '"]');
                     el.hidden = !part[1];
@@ -877,6 +874,10 @@ def export_pdf():
     week_end = max(dates).strftime("%d/%m/%Y")
     week_number = min(dates).isocalendar()[1]
 
+    # « Total heures de formation » is every hour scheduled that week, taken before exclusions:
+    # a session left off the sheet (autonomy slot, no signature) is still training time.
+    total_hours = sum(end - start for start, end in (_time_bounds(e["time"]) for e in events)) / 60
+
     excluded_ids, excluded_titles = _exclusions(db, username)
     events = [e for e in events if e["id"] not in excluded_ids and e["title"] not in excluded_titles]
     if not events:
@@ -886,7 +887,6 @@ def export_pdf():
     ue_table = parse_ue_table(profile_dict.get("ue_table", ""))
 
     lessons_for_pdf = []
-    total_hours = 0.0
     for group in merge_contiguous_lessons(events):
         first, last = group[0], group[-1]
         d = datetime.datetime.strptime(first["date"], "%Y%m%d")
@@ -899,7 +899,6 @@ def export_pdf():
                 pause_minutes += s - prev_end
             prev_end = e_
         duration_hours = duration_minutes / 60
-        total_hours += duration_hours
         start_min, _ = _time_bounds(first["time"])
         _, end_min = _time_bounds(last["time"])
 

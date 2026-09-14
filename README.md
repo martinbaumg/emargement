@@ -56,7 +56,8 @@ Certaines séances n'ont pas besoin de signature, par exemple « Travail Autonom
   cours » (exclusion par titre exact). Les cours concernés apparaissent sous forme de tags en bas
   de la page ; la croix d'un tag remet le cours sur le PDF.
 
-Le PDF est recalculé en conséquence : total d'heures, regroupement des créneaux consécutifs. La
+Le PDF est recalculé en conséquence (regroupement des créneaux consécutifs) ; le « Total heures de
+formation » reste celui de toute la semaine, séances exclues comprises. La
 période « Semaine du … au … » ne change pas. Si toutes les séances de la semaine sont exclues, un
 message l'indique au lieu de générer un PDF vide.
 
@@ -84,8 +85,9 @@ vide plutôt qu'un code faux.
 
 Sur la page des cours, chaque séance affiche son code UE sous le titre (« CCU »), ou « Sans code
 UE » si la table n'en donne pas et que la séance est sur le PDF. Une ligne résume la semaine : total
-d'heures du PDF, séances exclues et séances sans code UE, avec un lien vers la table. Elle se met à
-jour quand on inclut ou exclut une séance.
+d'heures programmées (toutes les séances, exclues comprises, comme sur le PDF), séances exclues et
+séances sans code UE, avec un lien vers la table. Les deux compteurs se mettent à jour quand on
+inclut ou exclut une séance.
 
 Le bouton « Remplir depuis PASS », sous la table, la complète avec les codes que PASS connaît pour
 les cours déjà chargés :
@@ -113,7 +115,9 @@ depuis le DSFR embarqué, donc suit ses mises à jour.
 ### Total des heures au choix
 
 Dans « Profil », l'interrupteur « Remplir le total des heures de formation sur le PDF » permet de
-laisser la case « Total heures de formation » vide, pour la remplir à la main. Il est désactivé par
+laisser la case « Total heures de formation » vide, pour la remplir à la main. Rempli, ce total
+compte toutes les heures programmées de la semaine, y compris les séances exclues du PDF (travail en
+autonomie…). Il est désactivé par
 défaut.
 
 ### Interface repensée pour le téléphone

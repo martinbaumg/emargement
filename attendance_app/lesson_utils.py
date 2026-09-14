@@ -4,6 +4,8 @@ No Flask app/request state here — everything takes its inputs as plain argumen
 stays testable and reusable from the route modules.
 """
 import json
+import re
+import unicodedata
 
 # Best-effort "this looks like a person's name" check on PASS's own raw detail lines
 # (e.g. "DAGNAT Fabien"), used to fill the Intervenant column on /lessons and the PDF's
@@ -57,6 +59,98 @@ def short_teacher_name(name: str) -> str:
         return name
     initials = "-".join(f"{part[0]}." for part in tokens[i].split("-") if part)
     return f"{' '.join(tokens[:i])} {initials}"
+
+
+def normalized_words(s: str) -> list:
+    """Words compared "flat": no case, no accents, apostrophes and any punctuation are word
+    breaks — « L’objet », "L'OBJET" and "l objet" all give ["l", "objet"], and
+    "LV-Anglais-A2S7-B" gives ["lv", "anglais", "a2s7", "b"]."""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch)).casefold()
+    s = s.replace("œ", "oe").replace("æ", "ae")
+    return re.findall(r"[a-z0-9]+", s)
+
+
+def parse_ue_table(text: str) -> list:
+    """Profile « Table des UE », one "Nom | autre mot-clé = CODE" per line ->
+    [(["Nom", "autre mot-clé"], "CODE"), ...]. The first name is the one printed in the
+    PDF's reference table; the others are only extra keywords for matching."""
+    table = []
+    for line in text.splitlines():
+        if "=" in line:
+            names, code = line.split("=", 1)
+            table.append(([n.strip() for n in names.split("|") if n.strip()], code.strip()))
+    return table
+
+
+def _stem(word: str) -> str:
+    """Crude French singular: "projets" -> "projet", "langues" -> "langue". Applied to both
+    sides, so it only has to be consistent, not linguistically right ("anglais" -> "anglai")."""
+    if len(word) > 3 and word[-1] in "sx" and not any(c.isdigit() for c in word):
+        return word[:-1]
+    return word
+
+
+# Not required in the title: « L'objet dans son environnement » must still match a title
+# written « Objet dans environnement ».
+UE_STOPWORDS = {"a", "au", "aux", "d", "dans", "de", "des", "du", "en", "et", "l", "la", "le",
+                "les", "par", "pour", "sa", "ses", "son", "sur", "un", "une"}
+# A generic "Langues" / "LV" UE covers every language course PASS names by the language
+# itself ("Anglais S9 B", "LV-Anglais-…"). One way only: "Anglais" never matches "Espagnol".
+GENERIC_LANGUAGE_WORDS = {_stem(w) for w in ("langue", "langues", "lv")}
+LANGUAGE_WORDS = GENERIC_LANGUAGE_WORDS | {_stem(w) for w in (
+    "anglais", "allemand", "espagnol", "italien", "portugais", "russe", "chinois", "japonais",
+    "arabe", "coreen", "francais", "fle")}
+
+
+def _one_edit_apart(a: str, b: str) -> bool:
+    """One inserted, deleted or substituted letter (a typo), not more."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i + (len(a) == len(b)):] == b[i + 1:]
+
+
+def _keyword_word_matches(word: str, title_words: set) -> bool:
+    if word in title_words:
+        return True
+    if word in GENERIC_LANGUAGE_WORDS:
+        return bool(title_words & LANGUAGE_WORDS)
+    if len(word) >= 2 and any(c.isdigit() for c in word):
+        # Codes glued into a longer token: "S9" in "A3S9", "A2S7" in "FISE-A2S7B".
+        return any(word in w for w in title_words)
+    if len(word) >= 7:
+        return any(len(w) >= 7 and _one_edit_apart(word, w) for w in title_words)
+    return False
+
+
+def ue_code_for(events: list, ue_table: list) -> str:
+    """Code of the first UE line with a keyword matching one of `events` (a merged PDF row).
+    A keyword matches when every one of its significant words (UE_STOPWORDS left out) is
+    found in the title, in any order, compared flat (normalized_words, singular/plural
+    folded) — each word either equal to a title word, a digit-bearing code inside one
+    ("S9" in "A3S9"), a generic language word against a language name, or one typo away
+    for words of 7+ letters. It also matches a PASS detail line with the same words.
+    Deliberately no "most words overlap" matching: a blank CODE UE box beats a wrong one
+    (half-word overlap put P3AS9 on English classes through "S9")."""
+    for names, code in ue_table:
+        for name in names:
+            raw = normalized_words(name)
+            words = [_stem(w) for w in raw]
+            # Stopwords checked before stemming: "dans" would otherwise become "dan".
+            significant = [_stem(w) for w in raw if w not in UE_STOPWORDS] or words
+            if not significant:
+                continue
+            for ev in events:
+                title_words = {_stem(w) for w in normalized_words(ev["title"])}
+                if all(_keyword_word_matches(w, title_words) for w in significant) or any(
+                        [_stem(w) for w in normalized_words(d)] == words for d in ev["details"]):
+                    return code
+    return ""
 
 
 def cache_lessons(db, owner_username, events):

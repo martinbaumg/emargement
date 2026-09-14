@@ -52,6 +52,37 @@ Le PDF est recalculé en conséquence : total d'heures, regroupement des crénea
 période « Semaine du … au … » ne change pas. Si toutes les séances de la semaine sont exclues, un
 message l'indique au lieu de générer un PDF vide.
 
+### Code UE plus tolérant
+
+Dans « Profil », chaque ligne de la table des UE (`Nom = CODE`) remplit la case « CODE UE » des
+cours dont le titre PASS contient ce nom :
+
+- la comparaison ignore majuscules, accents, apostrophes et ponctuation (« L'objet » reconnaît
+  « L’objet », « LV-Anglais » se lit « lv anglais »), ainsi que le pluriel (« Projet » reconnaît
+  « PROJETS ») ;
+- les mots peuvent être dans n'importe quel ordre, mais doivent tous être présents. Les petits
+  mots (de, et, l', dans, son…) ne sont pas exigés ;
+- un mot contenant un chiffre peut être collé à d'autres caractères : « Projet S9 » reconnaît
+  « Projet A3S9 » ;
+- « Langue(s) » ou « LV » reconnaît un nom de langue (« Anglais S9 B », « LV-Anglais-… »), mais
+  « Anglais » ne reconnaît pas « Espagnol » ;
+- une faute de frappe d'une lettre est tolérée sur les mots d'au moins 7 lettres ;
+- plusieurs mots-clés peuvent désigner la même UE, séparés par `|` :
+  `Langues | Anglais | LV = LCI310`. Seul le premier nom apparaît dans la table de référence du
+  PDF.
+
+Il n'y a pas de correspondance approximative : un cours sans correspondance exacte garde une case
+vide plutôt qu'un code faux.
+
+### Thème FIP
+
+Dans « Profil », l'interrupteur « Je suis FIP » (désactivé par défaut) remplace tout le bleu du DSFR
+par du rose `#F60975`. L'application sert alors une copie de `dsfr.min.css` où chaque bleu
+(variables des thèmes clair et sombre, couleurs fixes, images SVG intégrées) devient un rose de
+même clarté relative : le bleu principal `#000091` devient exactement `#F60975`, ses nuances plus
+claires ou plus foncées des roses plus clairs ou plus foncés. Cette copie est générée à la volée
+depuis le DSFR embarqué, donc suit ses mises à jour.
+
 ### Total des heures au choix
 
 Dans « Profil », l'interrupteur « Remplir le total des heures de formation sur le PDF » permet de

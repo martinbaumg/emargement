@@ -11,8 +11,9 @@ import pdf_export
 from app import app
 from csrf import check_csrf, generate_csrf
 from db import get_db
-from layout import render
-from lesson_utils import _time_bounds, merge_contiguous_lessons, short_teacher_name, teacher_names
+from layout import fip_dsfr_css, render
+from lesson_utils import (_time_bounds, merge_contiguous_lessons, parse_ue_table, short_teacher_name,
+                          teacher_names, ue_code_for)
 from pass_session import LIVE_SESSIONS, current_pass_session, fetch_events_cached, week_fetched
 
 # ---------------------------------------------------------------- student side
@@ -156,6 +157,14 @@ def _expire_pass_session():
 @app.route("/healthz")
 def healthz():
     return "ok"
+
+
+@app.route("/fip/dsfr.min.css")
+def fip_dsfr_stylesheet():
+    """DSFR stylesheet with pink instead of blue, for « Je suis FIP » profiles (see
+    layout.fip_dsfr_css). Versioned by ?v= from render(), so it can be cached for long."""
+    return Response(fip_dsfr_css(url_for("static", filename="dsfr")), mimetype="text/css",
+                    headers={"Cache-Control": "public, max-age=604800"})
 
 
 @app.route("/")
@@ -531,17 +540,19 @@ def profile():
             return redirect(url_for("profile"))
         db.execute(
             "INSERT INTO profiles (owner_username, nom, prenom, formation, taf, campus, apprentissage, ue_table, "
-            "show_total_hours, show_teacher_names) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "show_total_hours, show_teacher_names, is_fip) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(owner_username) DO UPDATE SET nom=excluded.nom, prenom=excluded.prenom, "
             "formation=excluded.formation, taf=excluded.taf, campus=excluded.campus, "
             "apprentissage=excluded.apprentissage, ue_table=excluded.ue_table, "
-            "show_total_hours=excluded.show_total_hours, show_teacher_names=excluded.show_teacher_names",
+            "show_total_hours=excluded.show_total_hours, show_teacher_names=excluded.show_teacher_names, "
+            "is_fip=excluded.is_fip",
             (username, request.form["nom"].strip(), request.form["prenom"].strip(),
              request.form["formation"].strip(), request.form["taf"].strip(), request.form["campus"].strip(),
              1, request.form.get("ue_table", "").strip(),
              1 if request.form.get("show_total_hours") else 0,
-             1 if request.form.get("show_teacher_names") else 0),
+             1 if request.form.get("show_teacher_names") else 0,
+             1 if request.form.get("is_fip") else 0),
         )
         db.commit()
         session["_flash"] = "Profil enregistré."
@@ -553,7 +564,7 @@ def profile():
     else:
         p = {"nom": "", "prenom": "", "formation": "", "taf": "",
              "campus": "BREST", "apprentissage": 1, "ue_table": "", "show_total_hours": 0,
-             "show_teacher_names": 1}
+             "show_teacher_names": 1, "is_fip": 0}
         try:
             dossier = ps.fetch_dossier(s, username=username)
         except Exception:
@@ -618,6 +629,13 @@ def profile():
                     {{ 'checked' if p.show_teacher_names else '' }}>
                 <label class="fr-toggle__label" for="show_teacher_names"
                     data-fr-checked-label="Rempli" data-fr-unchecked-label="Vide">Remplir le nom des intervenants sur le PDF</label>
+            </div>
+            <div class="fr-toggle fr-mb-3w">
+                <input type="checkbox" class="fr-toggle__input" id="is_fip" name="is_fip" value="1"
+                    aria-describedby="is_fip-hint" {{ 'checked' if p.is_fip else '' }}>
+                <label class="fr-toggle__label" for="is_fip"
+                    data-fr-checked-label="Oui" data-fr-unchecked-label="Non">Je suis FIP</label>
+                <p class="fr-hint-text" id="is_fip-hint">Remplace le bleu de l'interface par le rose FIP.</p>
             </div>
             <ul class="fr-btns-group fr-btns-group--inline-md">
                 <li><button type=submit class="fr-btn">Enregistrer</button></li>
@@ -718,11 +736,7 @@ def export_pdf():
         session["_flash"] = "Toutes les séances de cette semaine sont exclues du PDF."
         return redirect(url_for("lessons", week=week_offset))
 
-    ue_table = []
-    for line in profile_dict.get("ue_table", "").splitlines():
-        if "=" in line:
-            name, code = line.split("=", 1)
-            ue_table.append((name.strip(), code.strip()))
+    ue_table = parse_ue_table(profile_dict.get("ue_table", ""))
 
     lessons_for_pdf = []
     total_hours = 0.0
@@ -742,11 +756,7 @@ def export_pdf():
         start_min, _ = _time_bounds(first["time"])
         _, end_min = _time_bounds(last["time"])
 
-        code_ue = ""
-        for name, code in ue_table:
-            if name and any(name in ev["title"] or name in ev["details"] for ev in group):
-                code_ue = code
-                break
+        code_ue = ue_code_for(group, ue_table)
 
         teacher_name = (" / ".join(short_teacher_name(n) for n in teacher_names(group))
                         if profile_dict.get("show_teacher_names", 1) else "")
@@ -764,7 +774,7 @@ def export_pdf():
 
     pdf_bytes = pdf_export.build_pdf(
         profile_dict, week_start, week_end, str(week_number), lessons_for_pdf,
-        ue_table=ue_table,
+        ue_table=[(names[0] if names else "", code) for names, code in ue_table],
         total_hours=pdf_export.format_hours(total_hours) if total_hours else "",
         show_total_hours=bool(profile_dict.get("show_total_hours", 0)),
     )

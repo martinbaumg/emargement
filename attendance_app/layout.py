@@ -1,4 +1,9 @@
 """Shared page chrome (DSFR layout), the render() wrapper, and the flash-message helper."""
+import colorsys
+import functools
+import os
+import re
+
 from flask import render_template_string, session, url_for
 
 import db as dbmod
@@ -8,6 +13,58 @@ import db as dbmod
 # one more party that sees every request (IP, timing). Bump the vendored tree in
 # static/dsfr/ to upgrade.
 DSFR_VERSION = "1.15.3"
+DSFR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "dsfr")
+
+# « Je suis FIP » (profile switch): every DSFR blue becomes a shade of this pink.
+FIP_PINK = "#F60975"
+DSFR_MAIN_BLUE = "#000091"  # blue-france-sun-113, the one that lands exactly on FIP_PINK
+_HEX_RE = re.compile(r"(#|%23)([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b")  # %23: "#" inside SVG data URIs
+# Lookahead before the optional quote: with the quote group first, it could match empty and
+# let url("data:…") through as relative, breaking every inline SVG (e.g. toggle switches).
+_RELATIVE_URL_RE = re.compile(r"url\((?![\"']?(?:data:|https?:|/))([\"']?)")
+
+
+def _hls(hex_color: str) -> tuple:
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return colorsys.rgb_to_hls(*(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+
+
+def _fip_color(hex_color: str) -> str | None:
+    """A DSFR blue -> the pink at the same place on the lightness scale: the main blue lands
+    exactly on FIP_PINK, lighter blues (hover, tints, dark-theme accents) on lighter pinks,
+    darker ones on darker pinks. None for anything that isn't blue (greys, reds, greens…)."""
+    hue, light, sat = _hls(hex_color)
+    if not (195 <= hue * 360 <= 265 and sat > 0.25):
+        return None
+    if hex_color.lower() == DSFR_MAIN_BLUE:
+        return FIP_PINK
+    pink_hue, pink_light, pink_sat = _hls(FIP_PINK)
+    _, base_light, _ = _hls(DSFR_MAIN_BLUE)
+    if light <= base_light:
+        new_light = light / base_light * pink_light
+    else:
+        new_light = pink_light + (light - base_light) / (1 - base_light) * (1 - pink_light)
+    r, g, b = colorsys.hls_to_rgb(pink_hue, new_light, sat * pink_sat)
+    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+
+
+@functools.lru_cache(maxsize=4)
+def fip_dsfr_css(dsfr_base: str) -> str:
+    """The vendored dsfr.min.css with every blue swapped (see _fip_color) — variables, both
+    themes, literal colors and the blue fills of inline SVGs alike — built once per process,
+    so it follows a DSFR upgrade by itself. It's served from another path than static/dsfr/,
+    hence its relative url()s (fonts, icons) rewritten as absolute ones under dsfr_base."""
+    with open(os.path.join(DSFR_DIR, "dsfr.min.css"), encoding="utf-8") as f:
+        css = f.read()
+
+    def swap(m):
+        new = _fip_color("#" + m.group(2))
+        return m.group(1) + new[1:] if new else m.group(0)
+
+    css = _HEX_RE.sub(swap, css)
+    return _RELATIVE_URL_RE.sub(lambda m: f"url({m.group(1)}{dsfr_base}/", css)
 
 LAYOUT = """
 <!doctype html>
@@ -21,7 +78,7 @@ LAYOUT = """
 <link rel="icon" href='{{ dsfr_base }}/favicon/favicon.svg' type="image/svg+xml">
 <link rel="shortcut icon" href='{{ dsfr_base }}/favicon/favicon.ico' type="image/x-icon">
 <link rel="manifest" href='{{ dsfr_base }}/favicon/manifest.webmanifest' crossorigin="use-credentials">
-<link rel="stylesheet" href='{{ dsfr_base }}/dsfr.min.css'>
+<link rel="stylesheet" href='{{ dsfr_css }}'>
 <link rel="stylesheet" href='{{ dsfr_base }}/utility/icons/icons.min.css'>
 <script type="module" src='{{ dsfr_base }}/dsfr.module.min.js'></script>
 <script type="text/javascript" nomodule src='{{ dsfr_base }}/dsfr.nomodule.min.js'></script>
@@ -223,20 +280,24 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 """
 
 
-def _display_name(username: str) -> str:
-    """Prénom + nom from the student's own profile (itself pulled from their PASS
-    dossier — see ps.fetch_dossier) when set, falling back to their raw login."""
-    row = dbmod.get_db().execute("SELECT nom, prenom FROM profiles WHERE owner_username=?", (username,)).fetchone()
-    if row and (row["nom"] or row["prenom"]):
-        return f"{row['prenom']} {row['nom']}".strip()
-    return username
+def _header_profile(username: str) -> tuple:
+    """(display name, is_fip). The name is prénom + nom from the student's own profile
+    (itself pulled from their PASS dossier — see ps.fetch_dossier) when set, falling back
+    to their raw login."""
+    row = dbmod.get_db().execute(
+        "SELECT nom, prenom, is_fip FROM profiles WHERE owner_username=?", (username,)).fetchone()
+    name = f"{row['prenom']} {row['nom']}".strip() if row and (row["nom"] or row["prenom"]) else username
+    return name, bool(row and row["is_fip"])
 
 
 def render(body_template, **ctx):
     body = render_template_string(body_template, **ctx)
-    display_name = _display_name(session["username"]) if session.get("username") else None
+    display_name, is_fip = _header_profile(session["username"]) if session.get("username") else (None, False)
     dsfr_base = url_for("static", filename="dsfr")
-    return render_template_string(LAYOUT, body=body, dsfr_base=dsfr_base, display_name=display_name)
+    # ?v= so browsers drop their cached recolored sheet when the vendored DSFR is bumped.
+    dsfr_css = url_for("fip_dsfr_stylesheet", v=DSFR_VERSION) if is_fip else f"{dsfr_base}/dsfr.min.css"
+    return render_template_string(LAYOUT, body=body, dsfr_base=dsfr_base, dsfr_css=dsfr_css,
+                                  display_name=display_name)
 
 
 def get_flashed_message():

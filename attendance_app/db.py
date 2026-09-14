@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     apprentissage INTEGER NOT NULL DEFAULT 0,
     ue_table TEXT NOT NULL DEFAULT '',
     show_total_hours INTEGER NOT NULL DEFAULT 0,
-    show_teacher_names INTEGER NOT NULL DEFAULT 1
+    show_teacher_names INTEGER NOT NULL DEFAULT 1,
+    is_fip INTEGER NOT NULL DEFAULT 0
 );
 -- Sessions the student left off the PDF (e.g. « Travail Autonomie » slots, which need
 -- no signature). Still listed on /lessons, only skipped by export_pdf.
@@ -108,6 +109,15 @@ def _migrate_profiles_show_teacher_names(db):
     db.commit()
 
 
+def _migrate_profiles_is_fip(db):
+    """Same for the « Je suis FIP » switch (pink instead of DSFR blue), off by default."""
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(profiles)")}
+    if not cols or "is_fip" in cols:
+        return
+    db.execute("ALTER TABLE profiles ADD COLUMN is_fip INTEGER NOT NULL DEFAULT 0")
+    db.commit()
+
+
 def _migrate_lessons_cache_teachers(db):
     """Same for the trainers list read from each event's PASS popup. Rows cached before
     stay at '[]' until the next « Actualiser depuis PASS »."""
@@ -130,6 +140,7 @@ def get_db():
         _migrate_events_cache_meta(g.db)
         _migrate_profiles_show_total_hours(g.db)
         _migrate_profiles_show_teacher_names(g.db)
+        _migrate_profiles_is_fip(g.db)
         _migrate_lessons_cache_teachers(g.db)
     return g.db
 
@@ -148,5 +159,6 @@ def init_db():
     _migrate_events_cache_meta(conn)
     _migrate_profiles_show_total_hours(conn)
     _migrate_profiles_show_teacher_names(conn)
+    _migrate_profiles_is_fip(conn)
     _migrate_lessons_cache_teachers(conn)
     conn.close()

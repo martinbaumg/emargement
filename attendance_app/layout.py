@@ -17,6 +17,10 @@ LAYOUT = """
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="format-detection" content="telephone=no">
 <title>Émargement</title>
+<link rel="apple-touch-icon" href='{{ dsfr_base }}/favicon/apple-touch-icon.png'>
+<link rel="icon" href='{{ dsfr_base }}/favicon/favicon.svg' type="image/svg+xml">
+<link rel="shortcut icon" href='{{ dsfr_base }}/favicon/favicon.ico' type="image/x-icon">
+<link rel="manifest" href='{{ dsfr_base }}/favicon/manifest.webmanifest' crossorigin="use-credentials">
 <link rel="stylesheet" href='{{ dsfr_base }}/dsfr.min.css'>
 <link rel="stylesheet" href='{{ dsfr_base }}/utility/icons/icons.min.css'>
 <script type="module" src='{{ dsfr_base }}/dsfr.module.min.js'></script>

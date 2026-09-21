@@ -12,9 +12,10 @@ venv/
 .app.lock
 data/
 
-# Environnement
+# Environnement (secrets) — le modèle .env.example, lui, est versionné
 .env
 .env.*
+!.env.example
 
 # macOS
 .DS_Store

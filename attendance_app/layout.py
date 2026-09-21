@@ -8,6 +8,7 @@ from flask import render_template_string, session, url_for
 
 import db as dbmod
 from csrf import generate_csrf
+from roles import is_admin
 
 # Vendored under static/dsfr/ (see attendance_app/static/dsfr) rather than pulled from
 # jsdelivr's CDN at request time — a third-party CDN in the page's dependency chain is
@@ -159,6 +160,9 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
   .att-week-summary>span[hidden]{display:none}
 }
 
+/* Ticket messages: typed by hand in a textarea, so their line breaks are kept. */
+.att-ticket-message{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+
 /* First-login guide (#att-guide): steps as a compact numbered list, and the footer link
    that reopens it is a <button> dressed like its <a> neighbours. */
 .att-guide-steps{margin:0;padding-left:1.25rem}
@@ -260,6 +264,17 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
             <a class="fr-nav__link" href="{{ url_for('lessons') }}"
               {% if request.endpoint == 'lessons' %}aria-current="page"{% endif %}>Cours</a>
           </li>
+          <li class="fr-nav__item">
+            <a class="fr-nav__link" href="{{ url_for('tickets') }}"
+              {% if request.endpoint == 'tickets' %}aria-current="page"{% endif %}>Assistance</a>
+          </li>
+          {% if admin %}
+          <li class="fr-nav__item">
+            <a class="fr-nav__link" href="{{ url_for('admin_tickets') }}"
+              {% if request.endpoint and request.endpoint.startswith('admin_') %}aria-current="page"{% endif %}>Tickets
+              reçus{% if open_tickets %} ({{ open_tickets }}){% endif %}</a>
+          </li>
+          {% endif %}
           <li class="fr-nav__item">
             <a class="fr-nav__link" href="{{ url_for('profile') }}"
               {% if request.endpoint == 'profile' %}aria-current="page"{% endif %}>Profil</a>
@@ -473,8 +488,13 @@ def render(body_template, **ctx):
     # ?v= so browsers drop their cached recolored sheet when the vendored DSFR is bumped.
     dsfr_css = url_for("fip_dsfr_stylesheet", v=DSFR_VERSION) if is_fip else f"{dsfr_base}/dsfr.min.css"
     logged_in = bool(session.get("token") and username)
+    admin = logged_in and is_admin(username)
+    # Counted here rather than imported from routes_tickets, which imports this module.
+    open_tickets = dbmod.get_db().execute(
+        "SELECT count(*) FROM tickets WHERE status != 'traite'").fetchone()[0] if admin else 0
     return render_template_string(LAYOUT, body=body, dsfr_base=dsfr_base, dsfr_css=dsfr_css,
                                   display_name=display_name, logged_in=logged_in,
+                                  admin=admin, open_tickets=open_tickets,
                                   show_guide=logged_in and not _guide_seen(username),
                                   csrf_token=generate_csrf() if logged_in else "")
 

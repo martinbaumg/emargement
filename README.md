@@ -38,6 +38,53 @@ Dans « Profil », l'interrupteur « Remplir le nom des intervenants sur le PDF 
 colonne « Nom intervenant » vide. Il est activé par défaut ; les noms restent affichés sur la page
 des cours dans tous les cas.
 
+### Tickets d'assistance
+
+Le menu « Assistance » (`/tickets`) permet à un étudiant connecté d'ouvrir un ticket : sujet,
+adresse e-mail de réponse et message. Ses tickets restent consultables sur la page, avec leur
+statut (Ouvert, En cours, Traité) et la réponse reçue.
+
+L'administrateur — le compte dont l'identifiant PASS est dans `ADMIN_USERNAME` — voit en plus
+« Tickets reçus » dans le menu, avec le nombre de tickets à traiter, et l'espace `/admin/tickets`
+où il change le statut et rédige la réponse.
+
+Les e-mails partent par SMTP, entièrement configuré par variables d'environnement :
+
+| Variable | Rôle |
+|---|---|
+| `ADMIN_USERNAME` | identifiant PASS de l'administrateur ; vide = pas d'espace d'administration |
+| `ADMIN_EMAIL` | adresse prévenue à l'ouverture d'un ticket (défaut `contact@baumgaertner.fr`) |
+| `SMTP_HOST`, `SMTP_PORT` | serveur d'envoi (port 587 par défaut) |
+| `SMTP_SSL` | `1` pour un port en TLS implicite (465) ; sinon STARTTLS |
+| `SMTP_USER`, `SMTP_PASSWORD` | identifiants du compte d'envoi |
+| `SMTP_FROM` | expéditeur (défaut : `SMTP_USER`) |
+
+Sans configuration SMTP, le ticket est quand même enregistré et l'appli le dit clairement : rien
+n'est perdu, l'administrateur le voit dans son espace.
+
+Ces variables se mettent dans un fichier `.env` à la racine du projet, à côté de
+`docker-compose.yml` : `cp .env.example .env`, puis remplissez-le. Docker Compose le lit tout seul,
+et `run_local.py` aussi (une variable déjà définie dans le terminal reste prioritaire). Ce fichier
+n'est jamais versionné ; seul le modèle `.env.example` l'est.
+
+Exemple pour une boîte iCloud+ sur domaine personnalisé (le domaine est chez OVH, les MX pointent
+vers iCloud, donc l'envoi passe par iCloud et non par OVH) :
+
+```sh
+SMTP_HOST=smtp.mail.me.com
+SMTP_PORT=587
+SMTP_USER=votre-identifiant@icloud.com     # l'identifiant Apple, pas l'alias du domaine
+SMTP_PASSWORD=xxxx-xxxx-xxxx-xxxx          # mot de passe pour application (appleid.apple.com)
+SMTP_FROM=contact@baumgaertner.fr          # adresse déclarée dans iCloud Mail
+```
+
+Apple refuse le mot de passe habituel : il faut un mot de passe pour application, et l'adresse
+d'expédition doit exister dans iCloud Mail. Pour vérifier une configuration sans lancer l'appli :
+
+```sh
+cd attendance_app && .venv/bin/python -m mailer vous@exemple.fr
+```
+
 ### Guide à la première connexion
 
 À la première connexion, une fenêtre (modale DSFR, en plein écran sur téléphone) explique l'usage

@@ -10,6 +10,16 @@ services:
       # Mount path if served behind a reverse proxy on a sub-path, e.g. "/emargement".
       # Leave empty to serve at "/".
       BASE_URL_PATH: "${BASE_URL_PATH:-}"
+      # Support tickets: PASS login of the site's admin (empty = no admin area), address
+      # notified when a ticket is opened, and the SMTP account used to send both mails.
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-contact@baumgaertner.fr}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_SSL: "${SMTP_SSL:-}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
     volumes:
       - attendance_data:/data
     healthcheck:

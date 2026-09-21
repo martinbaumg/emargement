@@ -27,6 +27,26 @@ from werkzeug.exceptions import HTTPException
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+def _load_dotenv():
+    """Reads the project's .env (the one docker compose already reads by itself) so a local
+    `python run_local.py` gets the same settings — SMTP password included, and that file is
+    git-ignored. Never overrides a variable already set in the environment, which is how
+    the container and one-off shell commands keep the upper hand."""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, value = line.split("=", 1)
+            os.environ.setdefault(name.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
 import db
 import layout
 import pass_session
@@ -88,6 +108,7 @@ def _persist_live_session_cookies(response):
 # Imported for side effect (route registration on `app`) — must come after `app` is
 # defined above, since the route module does `from app import app`.
 import routes_student  # noqa: E402,F401
+import routes_tickets  # noqa: E402,F401
 
 # No `if __name__ == "__main__":` here on purpose: routes_student does
 # `from app import app`, so running this file directly (`python3 app.py`) makes Python

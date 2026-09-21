@@ -61,6 +61,19 @@ CREATE TABLE IF NOT EXISTS title_exclusions (
     created_at TEXT NOT NULL,
     PRIMARY KEY (owner_username, title)
 );
+-- Support tickets (routes_tickets.py): opened by a student, answered by the admin, who is
+-- mailed on creation; the student is mailed back at `email` when the ticket is updated.
+CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_username TEXT NOT NULL,
+    email TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    message TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ouvert',
+    reply TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 -- Students who have been shown the first-login guide (layout's #att-guide modal), so it
 -- only opens by itself once; the footer link reopens it any time.
 CREATE TABLE IF NOT EXISTS guide_seen (

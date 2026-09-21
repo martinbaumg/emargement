@@ -85,6 +85,14 @@ d'expédition doit exister dans iCloud Mail. Pour vérifier une configuration sa
 cd attendance_app && .venv/bin/python -m mailer vous@exemple.fr
 ```
 
+### Assistant automatique
+
+Un bouton « Assistant » flotte en bas à droite des pages. Il ouvre une modale DSFR où la
+conversation se fait uniquement par choix : chaque réponse en propose de nouveaux, une pause de
+« saisie » simule une réflexion, et toutes les branches finissent sur « Je sais pas, je m'en fous. »
+Le dernier écran propose de reprendre au début ou d'ouvrir un vrai ticket. Les réponses sont
+écrites dans `CHAT_TREE` (`attendance_app/layout.py`), rien n'est envoyé au serveur.
+
 ### Guide à la première connexion
 
 À la première connexion, une fenêtre (modale DSFR, en plein écran sur téléphone) explique l'usage

@@ -68,6 +68,54 @@ def fip_dsfr_css(dsfr_base: str) -> str:
     css = _HEX_RE.sub(swap, css)
     return _RELATIVE_URL_RE.sub(lambda m: f"url({m.group(1)}{dsfr_base}/", css)
 
+# Scripted chatbot (#att-chat): a choose-your-own-answer tree, every branch ending on the
+# same shrug — that's the joke. "wait" overrides the random typing pause, in ms.
+CHAT_TREE = {
+    "start": {"bot": "Bonjour. Je suis l'assistant automatique d'Émargement. "
+                     "En quoi puis-je vous aider ?",
+              "choices": [["Ma feuille d'émargement", "feuille"], ["PASS est lent", "pass"],
+                          ["J'ai un vrai problème", "vrai"], ["Je m'ennuie", "ennui"]]},
+    "feuille": {"bot": "Une feuille d'émargement, c'est un papier qu'on fait signer. "
+                       "Jusque-là, tout va bien. Qu'est-ce qui cloche ?",
+                "choices": [["Il manque un code UE", "code"], ["Il y a un cours en trop", "trop"],
+                            ["Le total d'heures me paraît faux", "heures"]]},
+    "code": {"bot": "Sur la page Cours, cliquez sur « Sans code UE » et tapez-le. "
+                    "C'est écrit dessus, en fait.",
+             "choices": [["Et si je ne le connais pas ?", "codeinconnu"], ["Merci", "jsp"]]},
+    "codeinconnu": {"bot": "Il y a « Remplir depuis PASS » dans le profil : ça devine les codes. "
+                           "Comme moi, mais en compétent.",
+                    "choices": [["Et si ça se trompe ?", "jsp"], ["D'accord", "jsp"]]},
+    "trop": {"bot": "Décochez-le. Il disparaît du PDF, pas de votre emploi du temps. "
+                    "Je ne fais pas de miracles.",
+             "choices": [["Et le travail en autonomie ?", "autonomie"], ["Parfait", "jsp"]]},
+    "autonomie": {"bot": "Le travail en autonomie compte dans vos heures mais ne se signe pas. "
+                         "Philosophiquement, c'est fascinant.",
+                  "choices": [["Si vous le dites", "jsp"]]},
+    "heures": {"bot": "Le total compte toutes les séances programmées, même celles que vous "
+                      "retirez du PDF. C'est voulu.",
+               "choices": [["Pourquoi ?", "jsp"], ["Logique", "jsp"]]},
+    "pass": {"bot": "PASS prend son temps. Moi, j'attends. Vous aussi. "
+                    "C'est un moment qu'on partage.",
+             "choices": [["C'est normal ?", "passnormal"], ["Je peux faire quelque chose ?", "passfaire"]]},
+    "passnormal": {"bot": "Normal, non. Habituel, oui.", "choices": [["Et donc ?", "jsp"]]},
+    "passfaire": {"bot": "Respirer. Regarder par la fenêtre. Réfléchir à vos choix de vie.",
+                  "choices": [["Ça aide", "jsp"], ["Et sinon ?", "jsp"]]},
+    "vrai": {"bot": "Un vrai problème, ça demande un vrai humain. Moi, je suis surtout décoratif.",
+             "choices": [["Non, je préfère vous parler", "jsp"]],
+             "link": ["Ouvrir un ticket", "tickets"]},
+    "ennui": {"bot": "Moi aussi, entre deux clics.",
+              "choices": [["Racontez une blague", "blague"], ["Parlez-moi du rose FIP", "fip"]]},
+    "blague": {"bot": "Deux étudiants entrent dans une salle. Le premier émarge. Le second aussi. Fin.",
+               "choices": [["C'était nul", "blague2"], ["Encore", "blague2"]]},
+    "blague2": {"bot": "Pourquoi PASS a-t-il traversé la route ? On ne sait pas, il charge encore.",
+                "choices": [["J'arrête", "jsp"]]},
+    "fip": {"bot": "Le rose permet de reconnaître un FIP à distance. C'est un service rendu à tous.",
+            "choices": [["Et les autres ?", "jsp"], ["C'est beau", "jsp"]]},
+    "jsp": {"bot": "Je sais pas, je m'en fous.", "wait": 2600,
+            "choices": [["Reprendre depuis le début", "start"]],
+            "link": ["Ouvrir un vrai ticket", "tickets"]},
+}
+
 LAYOUT = """
 <!doctype html>
 <html lang="fr" data-fr-scheme="system">
@@ -158,6 +206,22 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
   .att-week-summary>span{display:block}
   .att-week-summary>span:not(:first-child)::before{content:none}
   .att-week-summary>span[hidden]{display:none}
+}
+
+/* Scripted chatbot: launcher pinned bottom-right, conversation as DSFR-coloured bubbles. */
+.att-chat-launcher{position:fixed;right:1rem;bottom:1rem;z-index:900;box-shadow:0 4px 12px rgba(0,0,18,.2)}
+.att-chat-log{display:flex;flex-direction:column;gap:.75rem;min-height:12rem;max-height:50vh;overflow-y:auto;padding:.25rem}
+.att-chat-msg{max-width:85%;margin:0;padding:.5rem .75rem;border-radius:.5rem;overflow-wrap:anywhere}
+.att-chat-msg--bot{align-self:flex-start;background:var(--background-alt-grey)}
+.att-chat-msg--me{align-self:flex-end;background:var(--background-action-high-blue-france);color:var(--text-inverted-blue-france)}
+.att-chat-choices{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+.att-chat-typing{display:flex;gap:.25rem;align-items:center}
+.att-chat-typing span{width:.4rem;height:.4rem;border-radius:50%;background:var(--text-mention-grey);animation:att-typing 1.2s infinite}
+.att-chat-typing span:nth-child(2){animation-delay:.2s}
+.att-chat-typing span:nth-child(3){animation-delay:.4s}
+@keyframes att-typing { 0%,60%,100% { opacity:.25; } 30% { opacity:1; } }
+@media (prefers-reduced-motion:reduce){
+  .att-chat-typing span{animation:none;opacity:.5}
 }
 
 /* Ticket messages: typed by hand in a textarea, so their line breaks are kept. */
@@ -265,8 +329,8 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
               {% if request.endpoint == 'lessons' %}aria-current="page"{% endif %}>Cours</a>
           </li>
           <li class="fr-nav__item">
-            <a class="fr-nav__link" href="{{ url_for('tickets') }}"
-              {% if request.endpoint == 'tickets' %}aria-current="page"{% endif %}>Assistance</a>
+            <a class="fr-nav__link" href="{{ url_for('profile') }}"
+              {% if request.endpoint == 'profile' %}aria-current="page"{% endif %}>Profil</a>
           </li>
           {% if admin %}
           <li class="fr-nav__item">
@@ -275,9 +339,10 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
               reçus{% if open_tickets %} ({{ open_tickets }}){% endif %}</a>
           </li>
           {% endif %}
+          {# Last on purpose: « Assistance » is where everyone ends up, not where they start. #}
           <li class="fr-nav__item">
-            <a class="fr-nav__link" href="{{ url_for('profile') }}"
-              {% if request.endpoint == 'profile' %}aria-current="page"{% endif %}>Profil</a>
+            <a class="fr-nav__link" href="{{ url_for('tickets') }}"
+              {% if request.endpoint == 'tickets' %}aria-current="page"{% endif %}>Assistance</a>
           </li>
         </ul>
       </nav>
@@ -292,6 +357,27 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
 {{ body|safe }}
 </div>
 {% if logged_in %}
+<button type="button" class="fr-btn fr-btn--icon-left fr-icon-question-answer-fill att-chat-launcher"
+  aria-controls="att-chat" data-fr-opened="false" title="Assistant automatique">Assistant</button>
+<dialog id="att-chat" class="fr-modal" role="dialog" aria-labelledby="att-chat-title">
+  <div class="fr-container fr-container--fluid fr-container-md">
+    <div class="fr-grid-row fr-grid-row--center">
+      <div class="fr-col-12 fr-col-md-8 fr-col-lg-6">
+        <div class="fr-modal__body">
+          <div class="fr-modal__header">
+            <button type="button" class="fr-btn--close fr-btn" title="Fermer l'assistant" aria-controls="att-chat">Fermer</button>
+          </div>
+          <div class="fr-modal__content">
+            <h1 id="att-chat-title" class="fr-modal__title">Assistant automatique</h1>
+            <p class="fr-text--sm att-details">Il répond par choix, très vite, et rarement à côté.</p>
+            <div id="att-chat-log" class="att-chat-log fr-mt-2w" role="log" aria-live="polite"></div>
+            <div id="att-chat-choices" class="att-chat-choices"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
 {# DSFR modal: centered dialog on desktop, full-width sheet with its own scroll on phones.
    Opened by the footer « Guide d'utilisation » button; data-fr-opened="true" on it opens
    it at load for a student who has never seen it (show_guide). #}
@@ -375,6 +461,59 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
     link.href = "mailto:" + addr;
     link.textContent = addr;
   });
+
+  // Scripted chatbot: the answers are written in CHAT_TREE, the "typing" pause only exists
+  // to make choosing feel like a conversation — and to let the final shrug land.
+  var chatTree = {{ chat_tree|tojson }};
+  var chatLog = document.getElementById("att-chat-log");
+  var chatChoices = document.getElementById("att-chat-choices");
+  if (chatLog) {
+    var chatScroll = function() { chatLog.scrollTop = chatLog.scrollHeight; };
+    var chatBubble = function(text, who) {
+      var el = document.createElement("p");
+      el.className = "att-chat-msg att-chat-msg--" + who;
+      el.textContent = text;
+      chatLog.appendChild(el);
+      chatScroll();
+      return el;
+    };
+    var chatNode = function(id) {
+      var node = chatTree[id];
+      chatChoices.replaceChildren();
+      var dots = document.createElement("p");
+      dots.className = "att-chat-msg att-chat-msg--bot att-chat-typing";
+      dots.setAttribute("aria-label", "L'assistant écrit…");
+      dots.append(document.createElement("span"), document.createElement("span"), document.createElement("span"));
+      chatLog.appendChild(dots);
+      chatScroll();
+      setTimeout(function() {
+        dots.remove();
+        chatBubble(node.bot, "bot");
+        (node.choices || []).forEach(function(choice) {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.className = "fr-btn fr-btn--secondary fr-btn--sm";
+          button.textContent = choice[0];
+          button.addEventListener("click", function() {
+            chatBubble(choice[0], "me");
+            chatNode(choice[1]);
+          });
+          chatChoices.appendChild(button);
+        });
+        if (node.link) {
+          var link = document.createElement("a");
+          link.className = "fr-btn fr-btn--sm";
+          link.href = node.link[1];
+          link.textContent = node.link[0];
+          chatChoices.appendChild(link);
+        }
+        chatScroll();
+      }, node.wait || (700 + Math.random() * 900));
+    };
+    document.getElementById("att-chat").addEventListener("dsfr.disclose", function() {
+      if (!chatLog.childElementCount) chatNode("start");
+    });
+  }
 
   // First-login guide: once it has actually been shown (DSFR's dsfr.disclose event), record
   // it so it stops opening by itself. Listener set here, before the DSFR module script (run
@@ -475,6 +614,17 @@ def _header_profile(username: str) -> tuple:
     return name, bool(row and row["is_fip"])
 
 
+def chat_tree() -> dict:
+    """CHAT_TREE with its "link" targets turned into real URLs (they're endpoint names)."""
+    tree = {}
+    for key, node in CHAT_TREE.items():
+        node = dict(node)
+        if "link" in node:
+            node["link"] = [node["link"][0], url_for(node["link"][1])]
+        tree[key] = node
+    return tree
+
+
 def _guide_seen(username: str) -> bool:
     return dbmod.get_db().execute(
         "SELECT 1 FROM guide_seen WHERE owner_username=?", (username,)).fetchone() is not None
@@ -494,7 +644,7 @@ def render(body_template, **ctx):
         "SELECT count(*) FROM tickets WHERE status != 'traite'").fetchone()[0] if admin else 0
     return render_template_string(LAYOUT, body=body, dsfr_base=dsfr_base, dsfr_css=dsfr_css,
                                   display_name=display_name, logged_in=logged_in,
-                                  admin=admin, open_tickets=open_tickets,
+                                  admin=admin, open_tickets=open_tickets, chat_tree=chat_tree(),
                                   show_guide=logged_in and not _guide_seen(username),
                                   csrf_token=generate_csrf() if logged_in else "")
 

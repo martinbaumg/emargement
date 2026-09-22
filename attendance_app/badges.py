@@ -213,11 +213,6 @@ DEFINITIONS = [
 # left out of the score the TAF ranking compares, which would otherwise reward opening the site.
 USAGE_BADGES = {"explorateur", "alerte"}
 
-# Rarity percentages stay hidden below this: computed over four people, a percentage names them.
-# The TAF ranking has no such floor on purpose — a group average is only re-identifying if you
-# know who is in the group, and nothing here or anywhere else lists a TAF's participants.
-MIN_PARTICIPANTS = 5
-
 # Share of participants holding a badge -> what it's worth saying about it. Colours come from the
 # DSFR's decorative palettes (green / terre battue / glycine), never from its status colours:
 # "Épique" is a flourish, not a warning. No blue, so the « Je suis FIP » sheet leaves them alone.
@@ -344,23 +339,21 @@ def _tier(pct: int) -> tuple:
 def population(db, username: str) -> dict:
     """How the others did — as percentages and group averages only. No name, no pseudonym, no
     per-person row: the one individual figure on the page is the reader's own position, which
-    says nothing about anyone else. Under MIN_PARTICIPANTS nothing is computed at all."""
+    says nothing about anyone else."""
     rows = db.execute("SELECT owner_username, taf, score, badges_json FROM badge_scores").fetchall()
     participants = len(rows)
     mine = next((r for r in rows if r["owner_username"] == username), None)
     my_score = mine["score"] if mine else 0
-    enough = participants >= MIN_PARTICIPANTS
 
+    holders = {}
+    for r in rows:
+        for badge_id in json.loads(r["badges_json"]):
+            holders[badge_id] = holders.get(badge_id, 0) + 1
     rarity = {}
-    if enough:
-        holders = {}
-        for r in rows:
-            for badge_id in json.loads(r["badges_json"]):
-                holders[badge_id] = holders.get(badge_id, 0) + 1
-        for badge_id in (d[0] for d in DEFINITIONS):
-            pct = round(100 * holders.get(badge_id, 0) / participants)
-            tier, css = _tier(pct)
-            rarity[badge_id] = {"pct": pct, "tier": tier, "class": css}
+    for badge_id in (d[0] for d in DEFINITIONS):
+        pct = round(100 * holders.get(badge_id, 0) / participants) if participants else 0
+        tier, css = _tier(pct)
+        rarity[badge_id] = {"pct": pct, "tier": tier, "class": css}
 
     groups = {}
     for r in rows:
@@ -381,7 +374,6 @@ def population(db, username: str) -> dict:
 
     return {
         "participants": participants,
-        "enough": enough,
         "rarity": rarity,
         "rank": sum(1 for r in rows if r["score"] > my_score) + 1,
         "percentile": max(1, round(100 * (sum(1 for r in rows if r["score"] > my_score) + 1) / participants))
@@ -390,7 +382,6 @@ def population(db, username: str) -> dict:
         "max_score": len(DEFINITIONS) - len(USAGE_BADGES),
         "taf_ranking": ranking,
         "my_taf": my_taf,
-        "min_participants": MIN_PARTICIPANTS,
     }
 
 

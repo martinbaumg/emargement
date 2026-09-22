@@ -110,18 +110,17 @@ On y arrive par le menu, ou par « Voir mon palmarès » en haut du tableau de b
 
 Chaque badge indique la part des participants qui l'ont décroché, avec un palier — Commun (60 % et
 plus), Peu commun, Rare, Épique, Inédit (personne) — et le bandeau du haut donne votre position :
-« Vos 9 badges classants vous placent 2ᵉ sur 15, dans le top 13 % ». En bas de page, un classement
+« Vos 9 badges classants vous placent 2ᵉ sur 15 participants, dans le top 13 % » (le percentile
+n'est écrit qu'à partir de deux participants — seul, il n'y a rien à classer). En bas de page, un classement
 par TAF (COUAD, OPE, NETCLOUD…) compare les moyennes de badges par participant, le vôtre étant mis
 en évidence.
 
 **Personne n'est nommé nulle part.** La page n'affiche que des pourcentages, des moyennes de groupe
 et votre propre position ; ni nom, ni pseudonyme, ni liste de personnes, et jamais qui détient quel
-badge. Les taux de rareté n'apparaissent qu'à partir de `MIN_PARTICIPANTS` (5) participants :
-calculé sur trois personnes, un pourcentage désigne ces trois personnes. Le classement par TAF n'a
-pas de seuil équivalent — une moyenne de groupe ne dit quelque chose de quelqu'un que si l'on sait
-qui compose le groupe, et la composition d'un TAF n'est publiée nulle part. Est participant un
-compte ayant ouvert le palmarès au moins une fois. L'anonymat vaut entre étudiants :
-l'administrateur, lui, a la base.
+badge. Il n'y a pas de seuil d'effectif : un pourcentage de rareté comme une moyenne de TAF ne dit
+quelque chose de quelqu'un que si l'on sait qui est compté dedans, et cette composition n'est
+publiée nulle part. Est participant un compte ayant ouvert le palmarès au moins une fois.
+L'anonymat vaut entre étudiants : l'administrateur, lui, a la base.
 
 Les badges qui mesurent l'usage de l'application plutôt que les semaines de cours
 (`USAGE_BADGES` : « Explorateur de semaines », « Lanceur d'alerte ») sont exclus du score classant,

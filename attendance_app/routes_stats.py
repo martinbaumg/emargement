@@ -48,14 +48,10 @@ Tout est calculé sur les semaines déjà chargées depuis PASS — rien n'est e
         {% else %}Aucun badge affiché sur votre profil — choisissez-en un ci-dessous.{% endif %}
     </p>
     <p class="fr-text--sm fr-mt-1w fr-mb-0">
-        {% if pop.enough %}
         Vos {{ pop.my_score }} badges classants vous placent
-        <strong>{{ '1ᵉʳ' if pop.rank == 1 else pop.rank ~ 'ᵉ' }} sur {{ pop.participants }}</strong>,
-        dans le top {{ pop.percentile }} %.
-        {% else %}
-        <span class="att-details">Le classement s'affiche à partir de {{ pop.min_participants }} participants
-        ({{ pop.participants }} pour l'instant).</span>
-        {% endif %}
+        <strong>{{ '1ᵉʳ' if pop.rank == 1 else pop.rank ~ 'ᵉ' }} sur {{ pop.participants }}</strong>
+        participant{{ 's' if pop.participants > 1 else '' }}{% if pop.participants > 1 %}, dans le top
+        {{ pop.percentile }} %{% endif %}.
     </p>
 </div>
 
@@ -164,10 +160,8 @@ Les badges qui mesurent l'usage de l'application plutôt que vos semaines de cou
 <p class="fr-text--sm att-details">Rien de nominatif. Cette page n'affiche que des pourcentages, des
 moyennes de groupe et votre propre position ; aucun nom, aucun pseudonyme, aucune liste de personnes,
 et jamais qui détient quel badge. Sont comptés comme participants les comptes ayant ouvert le
-palmarès au moins une fois ({{ pop.participants }} aujourd'hui). Les pourcentages de rareté
-n'apparaissent qu'à partir de {{ pop.min_participants }} participants : en dessous, un pourcentage
-désigne les personnes qu'il décrit. Un TAF, lui, s'affiche dès son premier participant — une moyenne
-de groupe ne dit quelque chose de quelqu'un que si l'on sait qui compose le groupe, et cette
+palmarès au moins une fois ({{ pop.participants }} aujourd'hui). Un pourcentage de rareté comme une
+moyenne de TAF ne dit quelque chose de quelqu'un que si l'on sait qui est compté dedans, et cette
 composition n'est publiée nulle part. L'administrateur du service, lui, a la base de données :
 l'anonymat vaut entre étudiants, pas vis-à-vis de l'exploitant.</p>
 

@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS profiles (
     ue_table TEXT NOT NULL DEFAULT '',
     show_total_hours INTEGER NOT NULL DEFAULT 0,
     show_teacher_names INTEGER NOT NULL DEFAULT 1,
-    is_fip INTEGER NOT NULL DEFAULT 0
+    is_fip INTEGER NOT NULL DEFAULT 0,
+    featured_badge TEXT NOT NULL DEFAULT ''
 );
 -- Sessions the student left off the PDF (e.g. « Travail Autonomie » slots, which need
 -- no signature). Still listed on /lessons, only skipped by export_pdf.
@@ -79,6 +80,34 @@ CREATE TABLE IF NOT EXISTS tickets (
 CREATE TABLE IF NOT EXISTS guide_seen (
     owner_username TEXT PRIMARY KEY,
     seen_at TEXT NOT NULL
+);
+-- Audience counter (analytics.py): one row per served page, behind the footer's
+-- « visiteurs cette semaine » link and the /kpi dashboard. `visitor` is a random id kept in
+-- the browser's own signed session cookie — no IP, no user agent, no login — so the table
+-- counts browsers, never people, and analytics.RETENTION_DAYS bounds how long it keeps them.
+CREATE TABLE IF NOT EXISTS site_hits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    visitor TEXT NOT NULL DEFAULT '',
+    endpoint TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'GET',
+    status INTEGER NOT NULL DEFAULT 200,
+    is_bot INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_site_hits_ts ON site_hits(ts);
+-- One row per student who has opened the palmarès, refreshed on each visit (badges.record_score):
+-- what the population stats on that page are computed from — how rare each badge is, and the
+-- average score per TAF. Re-evaluating every account on every page view would cost a query per
+-- account; each student refreshing their own row on the way in costs one upsert. Nothing here
+-- is shown per person: the page only ever displays percentages, group averages, and your own
+-- position among the others.
+CREATE TABLE IF NOT EXISTS badge_scores (
+    owner_username TEXT PRIMARY KEY,
+    taf TEXT NOT NULL DEFAULT '',
+    earned INTEGER NOT NULL DEFAULT 0,
+    score INTEGER NOT NULL DEFAULT 0,
+    badges_json TEXT NOT NULL DEFAULT '[]',
+    updated_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS live_sessions (
     token TEXT PRIMARY KEY,
@@ -137,6 +166,16 @@ def _migrate_profiles_is_fip(db):
     db.commit()
 
 
+def _migrate_profiles_featured_badge(db):
+    """Same for the badge pinned to the profile from the palmarès (badges.set_featured) —
+    empty means none, which is what every existing profile gets."""
+    cols = {r["name"] for r in db.execute("PRAGMA table_info(profiles)")}
+    if not cols or "featured_badge" in cols:
+        return
+    db.execute("ALTER TABLE profiles ADD COLUMN featured_badge TEXT NOT NULL DEFAULT ''")
+    db.commit()
+
+
 def _migrate_lessons_cache_teachers(db):
     """Same for the trainers list read from each event's PASS popup. Rows cached before
     stay at '[]' until the next « Actualiser depuis PASS »."""
@@ -160,6 +199,7 @@ def get_db():
         _migrate_profiles_show_total_hours(g.db)
         _migrate_profiles_show_teacher_names(g.db)
         _migrate_profiles_is_fip(g.db)
+        _migrate_profiles_featured_badge(g.db)
         _migrate_lessons_cache_teachers(g.db)
     return g.db
 
@@ -179,5 +219,6 @@ def init_db():
     _migrate_profiles_show_total_hours(conn)
     _migrate_profiles_show_teacher_names(conn)
     _migrate_profiles_is_fip(conn)
+    _migrate_profiles_featured_badge(conn)
     _migrate_lessons_cache_teachers(conn)
     conn.close()

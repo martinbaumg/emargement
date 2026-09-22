@@ -47,6 +47,7 @@ def _load_dotenv():
 
 _load_dotenv()
 
+import analytics
 import db
 import layout
 import pass_session
@@ -93,6 +94,20 @@ def _log_exception_with_user(exc):
     return "Internal Server Error", 500
 
 
+@app.before_request
+def _tag_visitor():
+    """Hands this browser its anonymous counter id before anything is rendered, so the
+    footer's « visiteurs cette semaine » can include the visit it is part of."""
+    analytics.ensure_visitor()
+
+
+@app.after_request
+def _count_visit(response):
+    """One row per served page for the /kpi dashboard — see analytics.record, which
+    swallows its own errors rather than take a page down over a counter."""
+    return analytics.record(response)
+
+
 @app.after_request
 def _persist_live_session_cookies(response):
     """Keeps the `live_sessions` DB row current after every authenticated request, not
@@ -107,6 +122,7 @@ def _persist_live_session_cookies(response):
 
 # Imported for side effect (route registration on `app`) — must come after `app` is
 # defined above, since the route module does `from app import app`.
+import routes_stats  # noqa: E402,F401
 import routes_student  # noqa: E402,F401
 import routes_tickets  # noqa: E402,F401
 

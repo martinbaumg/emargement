@@ -8,6 +8,7 @@ import secrets
 import requests
 from flask import Response, jsonify, redirect, request, session, url_for
 
+import badges as badges_mod
 import pass_schedule as ps
 import pdf_export
 from app import app
@@ -815,6 +816,22 @@ def profile():
         <h1 class="fr-h3">Profil</h1>
         <p class="fr-mb-2w">Ces informations remplissent l'en-tête de la feuille d'émargement. Nom, prénom,
         formation et TAF sont pré-remplis depuis votre dossier étudiant PASS.</p>
+        {# The badge pinned from the palmarès. Outside the form on purpose: it isn't saved with
+           the profile — it's chosen over there, and only displayed here. #}
+        <div class="att-featured fr-mb-3w {{ '' if featured else 'att-featured--empty' }}">
+            <span class="{{ featured.icon if featured else 'fr-icon-award-line' }} att-featured__icon fr-icon--lg" aria-hidden="true"></span>
+            <div class="att-featured__body">
+                <p class="att-featured__label">Badge mis en avant</p>
+                {% if featured %}
+                <p class="att-featured__title">{{ featured.title }}</p>
+                <p class="att-featured__flavour">{{ featured.flavour }}</p>
+                {% else %}
+                <p class="att-featured__title">Aucun badge choisi</p>
+                <p class="att-featured__flavour">Vos badges se gagnent tout seuls, au fil des semaines chargées.</p>
+                {% endif %}
+            </div>
+            <a class="fr-link fr-link--sm att-featured__link" href="{{ url_for('badges') }}">{{ "Changer de badge" if featured else "Voir le palmarès" }}</a>
+        </div>
         <ul class="fr-btns-group fr-btns-group--inline-md fr-btns-group--icon-left">
             <li>
                 <a class="fr-btn fr-btn--secondary fr-icon-refresh-line" href="{{ url_for('profile_import') }}"
@@ -901,6 +918,7 @@ def profile():
         </script>
         """,
         p=p,
+        featured=badges_mod.featured(db, username),
         csrf_token=generate_csrf(),
     )
 

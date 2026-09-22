@@ -6,6 +6,7 @@ import re
 
 from flask import render_template_string, session, url_for
 
+import analytics
 import db as dbmod
 from csrf import generate_csrf
 from roles import is_admin
@@ -234,7 +235,23 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
 .att-guide-steps>li:last-child{margin-bottom:0}
 .att-guide-steps p{margin:.25rem 0 0}
 .att-guide-steps .fr-highlight{margin:.5rem 0 0 0;padding-left:1rem}
-button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inherit}
+/* The guide opener is a <button> dressed as a footer link: the UA button font has to be
+   overridden, but with the exact size of .fr-footer__bottom-link (.75rem/1.25rem) — plain
+   `font:inherit` took the body's 1rem and left it visibly bigger than its neighbours.
+   Colour is left to the DSFR class on the same element. */
+button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;
+  font-family:inherit;font-size:.75rem;line-height:1.25rem;text-align:left}
+
+/* Footer without a brand block: DSFR sizes .fr-footer__content for a logo on its left
+   (flex-basis:50%, margin-left:auto), which left the description pushed to the right of an
+   empty half. This site has no logo — in the header either — so the content takes the row. */
+.att-footer .fr-footer__content{flex-basis:100%;margin-left:0;max-width:none}
+/* DSFR closes the footer with a 1px grey line right across the page (the second inset shadow
+   of .fr-footer, full viewport width). Nothing sits under the row of links any more, so it
+   read as a stray rule at the very bottom: the blue top rule is kept, that one is dropped,
+   and the last row gets a little air instead of ending 8px after the text. */
+.att-footer{box-shadow:inset 0 2px 0 0 var(--border-plain-blue-france)}
+.att-footer .fr-footer__bottom-list{padding-bottom:1.5rem}
 
 /* Long course titles in the "toujours exclus" tags wrap instead of overflowing. */
 .att-rules .fr-tag{white-space:normal;text-align:left;height:auto;max-width:100%}
@@ -276,6 +293,132 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
   .fr-callout{padding:1.25rem}
   .att-main.fr-my-4w{margin-top:1.5rem !important}
   .fr-tabs__panel{padding-left:.75rem;padding-right:.75rem}
+}
+
+/* Figures — the badge wall (/badges) and the audience dashboard (/kpi). Both are read as
+   numbers, so they share the stat tile, the meter and the chart marks. Every mark wears the
+   DSFR action blue through currentColor, which the « Je suis FIP » stylesheet turns pink
+   along with the rest; text never wears the mark colour. */
+.att-kpi-grid{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fill,minmax(10.5rem,1fr))}
+.att-kpi{border:1px solid var(--border-default-grey);background:var(--background-default-grey);padding:.75rem 1rem}
+.att-kpi__label{margin:0;font-size:.75rem;line-height:1.25rem;text-transform:uppercase;letter-spacing:.03em;color:var(--text-mention-grey)}
+.att-kpi__value{margin:.25rem 0 0;font-size:1.75rem;line-height:2.25rem;font-weight:700}
+.att-kpi__value--text{font-size:1.125rem;line-height:1.75rem;overflow-wrap:anywhere}
+.att-kpi__hint{margin:.25rem 0 0;font-size:.75rem;line-height:1.25rem;color:var(--text-mention-grey)}
+.att-kpi-head{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+/* Hero figure: one per page, the number the dashboard leads with. Proportional figures —
+   tabular ones look loose at this size; the tables below are where digits must line up. */
+.att-hero{margin:.25rem 0 .5rem;font-size:4rem;line-height:1.1;font-weight:700}
+.att-num{text-align:right;font-variant-numeric:tabular-nums}
+.att-delta{font-weight:700}
+.att-delta--up{color:var(--text-default-success)}
+.att-delta--down{color:var(--text-default-error)}
+/* Meter: a share or a progress on one track — filled step over a lighter step of the same ramp. */
+/* display:block on both: width and height do nothing on a non-replaced inline element, so a
+   meter built out of <span>s drew its track (a grid item is blockified) and no fill at all. */
+.att-meter{display:block;height:.5rem;background:var(--background-contrast-grey);border-radius:.25rem;overflow:hidden}
+.att-meter--sm{height:.25rem;max-width:12rem}
+.att-meter__fill{display:block;height:100%;background:var(--background-action-high-blue-france);border-radius:.25rem}
+
+.att-badges{display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));margin:0;padding:0}
+.att-badge{display:flex;flex-direction:column;border:1px solid var(--border-default-grey);background:var(--background-default-grey);padding:1rem}
+.att-badge--locked{background:var(--background-alt-grey);border-style:dashed}
+.att-badge__head{display:flex;align-items:center;gap:.5rem;margin:0 0 .75rem}
+.att-badge__icon{color:var(--background-action-high-blue-france)}
+.att-badge--locked .att-badge__icon{color:var(--text-disabled-grey)}
+.att-badge__title{font-weight:700}
+.att-badge__flavour,.att-badge__rule{margin:0;font-size:.875rem;line-height:1.5rem;color:var(--text-mention-grey)}
+.att-badge__progress{margin:.25rem 0 0;font-size:.75rem;line-height:1.25rem;color:var(--text-mention-grey);font-variant-numeric:tabular-nums}
+/* The action sits at the bottom of the card whatever the text above it measures, so the
+   buttons line up across a row of cards. */
+.att-badge__action{margin:auto 0 0;padding-top:1rem}
+.att-badge--featured{border-color:var(--border-plain-blue-france);box-shadow:inset 0 0 0 1px var(--border-plain-blue-france)}
+/* The same badge as shown on the profile: one row, icon apart, and the way back to the wall. */
+.att-featured{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;
+  border:1px solid var(--border-default-grey);background:var(--background-alt-grey);padding:1rem 1.25rem}
+.att-featured__icon{flex:none;color:var(--background-action-high-blue-france)}
+.att-featured--empty .att-featured__icon{color:var(--text-disabled-grey)}
+.att-featured__body{flex:1 1 12rem;min-width:0}
+.att-featured__label{margin:0;font-size:.75rem;line-height:1.25rem;text-transform:uppercase;letter-spacing:.03em;color:var(--text-mention-grey)}
+.att-featured__title{margin:.125rem 0 0;font-weight:700}
+.att-featured--empty .att-featured__title{font-weight:400;color:var(--text-mention-grey)}
+.att-featured__flavour{margin:.125rem 0 0;font-size:.875rem;line-height:1.5rem;color:var(--text-mention-grey)}
+.att-featured__link{flex:none}
+/* How rare a badge is among the participants. The tier wears one of the DSFR's decorative
+   palettes (green / terre battue / glycine) — never a status colour, and no blue, so the FIP
+   sheet leaves the scale intact. */
+.att-badge__rarity{margin:.75rem 0 0;font-size:.75rem;line-height:1.25rem;color:var(--text-mention-grey)}
+.att-tier{font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.att-tier--commun{color:var(--text-mention-grey)}
+.att-tier--peu-commun{color:var(--text-label-green-emeraude)}
+.att-tier--rare{color:var(--text-label-orange-terre-battue)}
+.att-tier--epique{color:var(--text-label-purple-glycine)}
+
+/* TAF ranking: one row per group, ranked, the leader's bar full and the others read against it.
+   Group averages only — there is no per-person row anywhere on this page. */
+.att-taf{margin:0;padding:0}
+.att-taf--alone .att-taf__row{grid-template-columns:2rem minmax(0,1fr) auto}
+.att-taf__row{display:grid;grid-template-columns:2rem minmax(0,1fr) 10rem auto;align-items:center;gap:1rem;
+  padding:.75rem .5rem;border-bottom:1px solid var(--border-default-grey)}
+.att-taf__row:first-child{border-top:1px solid var(--border-default-grey)}
+.att-taf__row--mine{background:var(--background-alt-grey)}
+.att-taf__rank{display:flex;align-items:center;justify-content:center;width:2rem;height:2rem;flex:none;
+  border-radius:50%;font-size:.875rem;font-weight:700;background:var(--background-contrast-grey);color:var(--text-default-grey)}
+.att-taf__rank--1{background:var(--background-action-high-blue-france);color:var(--text-inverted-blue-france)}
+.att-taf__rank--2,.att-taf__rank--3{background:var(--background-contrast-blue-france);color:var(--text-label-blue-france)}
+.att-taf__name{font-weight:700;overflow-wrap:anywhere}
+.att-taf__count{display:block;font-size:.75rem;line-height:1.25rem;font-weight:400;color:var(--text-mention-grey)}
+.att-taf__value{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.att-taf__unit{font-size:.75rem;font-weight:400;color:var(--text-mention-grey)}
+@media (max-width:47.98em){
+  /* Phones: the bar is the first thing to go — the number beside it says the same. */
+  .att-taf__row{grid-template-columns:2rem minmax(0,1fr) auto;gap:.75rem}
+  .att-taf__bar{display:none}
+}
+.att-badges-score{margin:1.5rem 0 0;font-size:2.5rem;line-height:1;font-weight:700}
+.att-badges-score__total{font-size:1.25rem;font-weight:400;color:var(--text-mention-grey)}
+
+/* 30-day trend: the SVG is stretched to the page width (preserveAspectRatio="none") and the
+   stroke held at 2px by vector-effect, so only the geometry stretches — which is what a time
+   axis is for. No end-dot: a circle would stretch into an ellipse; the last value is written
+   in the caption instead, and the whole series is in the table under the chart. */
+.att-chart{position:relative;color:var(--background-action-high-blue-france);border-bottom:1px solid var(--border-default-grey)}
+.att-chart svg{display:block;width:100%;height:9rem}
+.att-chart__cursor{position:absolute;top:0;bottom:0;width:1px;background:var(--border-plain-grey);pointer-events:none}
+.att-chart__tip{position:absolute;top:.25rem;left:0;padding:.25rem .5rem;font-size:.75rem;line-height:1.25rem;white-space:nowrap;
+  background:var(--background-default-grey);border:1px solid var(--border-default-grey);color:var(--text-default-grey);pointer-events:none}
+.att-chart__tip--end{left:auto;right:0}
+/* Not .fr-content-media: that one is a column flex box with align-items:center, meant for
+   images — it shrinks a full-width chart to its content and leaves the axis no room to
+   spread its labels, which is how they ended up as "00h06h12h18h". */
+.att-figure{margin:0;width:100%}
+.att-figure__caption{margin:0 0 .75rem;font-size:.75rem;line-height:1.25rem;color:var(--text-mention-grey)}
+.att-axis{margin:.5rem 0 0;padding:0;font-size:.75rem;line-height:1.25rem;color:var(--text-mention-grey)}
+/* Date labels sit at the exact x of their own point (left: i/(n-1) of the width), the first
+   flush left and the last flush right so neither hangs off the chart. */
+.att-axis--points{position:relative;height:1.25rem}
+.att-axis--points>span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.att-axis--points>span:first-child{transform:none}
+.att-axis--points>span:last-child{transform:translateX(-100%)}
+/* Hour labels ride the same 24 columns as the bars, so each one is centered under its own
+   column; the empty cells in between are what keeps them apart. */
+.att-axis--hours{display:flex;gap:2px}
+.att-axis--hours>li{flex:1;min-width:0;text-align:center}
+.att-axis--hours>li:first-child{text-align:left}
+/* Hour histogram: plain HTML columns — 2px of surface between neighbours, 4px rounded at the
+   data end, square on the baseline, capped at 24px so the band keeps some air. */
+.att-bars{display:flex;align-items:flex-end;gap:2px;height:9rem;margin:0;padding:0;border-bottom:1px solid var(--border-default-grey)}
+.att-bars__col{flex:1;display:flex;align-items:flex-end;justify-content:center;height:100%}
+.att-bar{position:relative;display:block;width:100%;max-width:24px;min-height:2px;background:var(--background-action-high-blue-france);border-radius:4px 4px 0 0}
+.att-bar__value{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:.25rem;font-size:.75rem;
+  color:var(--text-default-grey);opacity:0;transition:opacity .1s;pointer-events:none}
+.att-bar--empty{min-height:1px;background:var(--border-default-grey)}
+.att-bars__col:hover .att-bar__value{opacity:1}
+@media (prefers-reduced-motion:reduce){.att-bar__value{transition:none}}
+@media (max-width:47.98em){
+  /* Phones: 24 columns of two digits don't fit — the hover value and the table carry them. */
+  .att-hero{font-size:3rem}
+  .att-bars,.att-chart svg{height:7rem}
 }
 </style>
 </head>
@@ -331,6 +474,10 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
           <li class="fr-nav__item">
             <a class="fr-nav__link" href="{{ url_for('profile') }}"
               {% if request.endpoint == 'profile' %}aria-current="page"{% endif %}>Profil</a>
+          </li>
+          <li class="fr-nav__item">
+            <a class="fr-nav__link" href="{{ url_for('badges') }}"
+              {% if request.endpoint == 'badges' %}aria-current="page"{% endif %}>Palmarès</a>
           </li>
           {% if admin %}
           <li class="fr-nav__item">
@@ -428,27 +575,37 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;font:inh
   </div>
 </dialog>
 {% endif %}
-<footer class="fr-footer" role="contentinfo">
+<footer class="fr-footer att-footer" role="contentinfo">
   <div class="fr-container">
     <div class="fr-footer__body">
       <div class="fr-footer__content">
-        <p class="fr-footer__content-desc">Outil personnel, non officiel — construit avec le
+        <p class="fr-footer__content-desc"><strong>Émargement</strong> — outil personnel et non
+        officiel, sans lien avec l'école. Interface construite avec le
         <a class="fr-footer__content-link" href="https://www.systeme-de-design.gouv.fr/" target="_blank" rel="noopener noreferrer external">Système de Design de l'État</a>.</p>
-        <ul class="fr-footer__content-list">
-          <li class="fr-footer__content-item">
-            <a class="fr-footer__content-link" href="https://github.com/martinbaumg/emargement" target="_blank" rel="noopener noreferrer external">Code source</a>
-          </li>
-          <li class="fr-footer__content-item">
-            <a class="fr-footer__content-link att-contact-link" data-enc="Y29udGFjdEBiYXVtZ2FlcnRuZXIuZnI=" href="#">Contact</a>
-          </li>
-          {% if logged_in %}
-          <li class="fr-footer__content-item">
-            <button type="button" class="fr-footer__content-link att-guide-link" aria-controls="att-guide"
-              data-fr-opened="{{ 'true' if show_guide else 'false' }}">Guide d'utilisation</button>
-          </li>
-          {% endif %}
-        </ul>
       </div>
+    </div>
+    {# The links live in __bottom, not in __content: __content-list is the right-hand column of
+       the body grid, so four links there pile up in a narrow stack against the right edge.
+       __bottom is a full-width row under a rule, read left to right with DSFR's own separators. #}
+    <div class="fr-footer__bottom">
+      <ul class="fr-footer__bottom-list">
+        <li class="fr-footer__bottom-item">
+          <a class="fr-footer__bottom-link" href="https://github.com/martinbaumg/emargement" target="_blank" rel="noopener noreferrer external">Code source</a>
+        </li>
+        <li class="fr-footer__bottom-item">
+          <a class="fr-footer__bottom-link att-contact-link" data-enc="Y29udGFjdEBiYXVtZ2FlcnRuZXIuZnI=" href="#">Contact</a>
+        </li>
+        {% if logged_in %}
+        <li class="fr-footer__bottom-item">
+          <button type="button" class="fr-footer__bottom-link att-guide-link" aria-controls="att-guide"
+            data-fr-opened="{{ 'true' if show_guide else 'false' }}">Guide d'utilisation</button>
+        </li>
+        {% endif %}
+        <li class="fr-footer__bottom-item">
+          <a class="fr-footer__bottom-link" href="{{ url_for('kpi') }}"
+            title="Tableau de bord d'audience">{{ weekly_visitors }} visiteur{{ 's' if weekly_visitors > 1 else '' }} cette semaine</a>
+        </li>
+      </ul>
     </div>
   </div>
 </footer>
@@ -646,6 +803,7 @@ def render(body_template, **ctx):
                                   display_name=display_name, logged_in=logged_in,
                                   admin=admin, open_tickets=open_tickets, chat_tree=chat_tree(),
                                   show_guide=logged_in and not _guide_seen(username),
+                                  weekly_visitors=analytics.weekly_visitors(),
                                   csrf_token=generate_csrf() if logged_in else "")
 
 

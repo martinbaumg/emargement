@@ -93,6 +93,91 @@ conversation se fait uniquement par choix : chaque réponse en propose de nouvea
 Le dernier écran propose de reprendre au début ou d'ouvrir un vrai ticket. Les réponses sont
 écrites dans `CHAT_TREE` (`attendance_app/layout.py`), rien n'est envoyé au serveur.
 
+### Palmarès
+
+Le menu « Palmarès » (`/badges`) transforme les semaines déjà chargées en quinze badges :
+« Survivant du 8h » (cinq séances qui commencent à 8h00 ou avant), « Zéro vendredi » (une semaine
+entière sans cours le vendredi), « Marathon 10h » (une journée de dix heures entre le premier et le
+dernier cours), « Trou noir », « Grand chelem », « Tour du propriétaire », « Centurion »…
+
+Un badge obtenu affiche sa ligne, un badge à décrocher affiche sa règle et sa progression
+(`7 / 10`, `98h00 / 100h00`) ; les plus proches du but passent en tête. Le nombre de badges donne un
+rang, de « Fantôme du bâtiment B » à « Légende de l'émargement ».
+
+On y arrive par le menu, ou par « Voir mon palmarès » en haut du tableau de bord d'audience.
+
+#### Rareté, position et classement par TAF
+
+Chaque badge indique la part des participants qui l'ont décroché, avec un palier — Commun (60 % et
+plus), Peu commun, Rare, Épique, Inédit (personne) — et le bandeau du haut donne votre position :
+« Vos 9 badges classants vous placent 2ᵉ sur 15, dans le top 13 % ». En bas de page, un classement
+par TAF (COUAD, OPE, NETCLOUD…) compare les moyennes de badges par participant, le vôtre étant mis
+en évidence.
+
+**Personne n'est nommé nulle part.** La page n'affiche que des pourcentages, des moyennes de groupe
+et votre propre position ; ni nom, ni pseudonyme, ni liste de personnes, et jamais qui détient quel
+badge. Les taux de rareté n'apparaissent qu'à partir de `MIN_PARTICIPANTS` (5) participants :
+calculé sur trois personnes, un pourcentage désigne ces trois personnes. Le classement par TAF n'a
+pas de seuil équivalent — une moyenne de groupe ne dit quelque chose de quelqu'un que si l'on sait
+qui compose le groupe, et la composition d'un TAF n'est publiée nulle part. Est participant un
+compte ayant ouvert le palmarès au moins une fois. L'anonymat vaut entre étudiants :
+l'administrateur, lui, a la base.
+
+Les badges qui mesurent l'usage de l'application plutôt que les semaines de cours
+(`USAGE_BADGES` : « Explorateur de semaines », « Lanceur d'alerte ») sont exclus du score classant,
+sans quoi le classement récompenserait le fait d'ouvrir le site.
+
+Côté calcul, chaque visite du palmarès met à jour la ligne de l'étudiant dans `badge_scores`
+(TAF, nombre de badges, score, identifiants des badges obtenus). Les statistiques se lisent ensuite
+dans cette seule table : une écriture par visite, au lieu de réévaluer tous les comptes à chaque
+affichage de la page.
+
+Chaque badge obtenu porte un bouton « Afficher sur le profil » : le badge choisi apparaît en haut
+de la page « Profil », avec son icône et sa ligne, et un lien pour en changer. **Un seul à la
+fois** — en choisir un remplace le précédent, et « Retirer du profil » n'en laisse aucun. Le choix
+est gardé dans `profiles.featured_badge` (colonne ajoutée automatiquement au démarrage) ; il n'est
+pas enregistré avec le formulaire du profil, donc « Enregistrer » ne l'écrase pas. Le serveur
+revérifie que le badge est bien obtenu, à la mise en avant comme à l'affichage : un badge qui
+cesse de l'être (des séances remises sur le PDF défont « Grand autonome ») disparaît du profil au
+lieu de mentir.
+
+Tout est calculé dans `attendance_app/badges.py` à partir de ce que l'application a déjà en base
+(`lessons_cache`, les exclusions, `events_cache_meta`, `tickets`) : **aucun appel à PASS**, aucune
+donnée nouvelle. Un badge ne connaît donc que les semaines ouvertes au moins une fois sur la page
+« Cours » — c'est écrit sur la page. Les salles sont reconnues à leur code PASS (`BR-B02-017A`) ;
+les amphis appelés par leur nom ne sont pas comptés.
+
+### Compteur de visiteurs et tableau de bord d'audience
+
+Le pied de page affiche « *N* visiteurs cette semaine », dans la rangée de liens du bas
+(`fr-footer__bottom`) plutôt que dans la colonne de droite du corps, où quatre liens finissaient
+empilés contre le bord. Le lien ouvre `/kpi`, un tableau de bord
+d'audience qui prend son sujet très au sérieux : chiffre d'affichage en tête, objectif trimestriel,
+courbe des pages vues sur 30 jours, répartition par heure, pages les plus consultées, puis les
+sections « Production et chaîne de valeur », « Qualité de service » et « Projection et création de
+valeur » — taux de rebond, écart-type, droite des moindres carrés prolongée à cinq ans avec son R²,
+valorisation à 1 000 € le visiteur, coût par visiteur (0,00 €) et réunions de pilotage évitées.
+
+Les chiffres sont réels ; c'est leur mise en scène qui ne l'est pas. Ce qui est enregistré, à chaque
+page servie (`attendance_app/analytics.py`, table `site_hits`) : l'heure, la page, la méthode, le
+code de réponse, un booléen « robot », et un identifiant aléatoire tiré pour le navigateur et gardé
+dans son propre cookie de session. **Ni adresse IP, ni User-Agent, ni identifiant PASS** : le
+compteur sait combien de navigateurs sont passés, jamais qui. Les lignes de plus de 400 jours
+(`analytics.RETENTION_DAYS`) sont supprimées au fil de l'eau, les robots sont comptés à part
+puisqu'ils ne gardent pas de cookie, et les fichiers statiques, `/healthz` et la feuille de style
+FIP ne comptent pas comme des visites. La page est lisible sans être connecté, puisque le lien du
+pied de page l'est aussi.
+
+Les deux graphiques sont dessinés à la main, sans bibliothèque : la courbe est un SVG étiré à la
+largeur de la page (`preserveAspectRatio="none"`, trait maintenu à 2 px par `vector-effect`),
+l'histogramme des heures est une simple rangée de `<div>`. Ils ne sont pas dans une
+`fr-content-media` — cette classe est une boîte flex centrée en colonne, faite pour des images :
+elle réduisait les graphiques à la largeur de leur contenu et collait les libellés d'axe les uns
+aux autres. Les dates sont posées à l'abscisse exacte de leur point, les heures partagent les
+24 colonnes de l'histogramme et sont écrites toutes les six. Les marques prennent le bleu du DSFR par
+`currentColor`, donc elles deviennent roses avec le thème FIP et suivent le mode sombre sans une
+ligne de plus. Le détail de la courbe est aussi donné sous forme de tableau, sous le graphique.
+
 ### Guide à la première connexion
 
 À la première connexion, une fenêtre (modale DSFR, en plein écran sur téléphone) explique l'usage
@@ -203,8 +288,10 @@ défaut.
 
 ## Mise à jour d'une installation existante
 
-La base SQLite est migrée automatiquement au démarrage : ajout des tables `lesson_exclusions` et
-`title_exclusions`, et des colonnes `profiles.show_total_hours`, `profiles.show_teacher_names` et
+La base SQLite est migrée automatiquement au démarrage : ajout des tables `lesson_exclusions`,
+`title_exclusions`, `site_hits` (le compteur de visiteurs) et `badge_scores` (les statistiques du
+palmarès), toutes vides au départ, et des colonnes
+`profiles.show_total_hours`, `profiles.show_teacher_names`, `profiles.featured_badge` et
 `lessons_cache.teachers_json`
 (les intervenants apparaissent après le prochain « Actualiser depuis PASS »). Les anciennes tables de signature
 (`signatures`, `student_signatures`, `teacher_links`, `lesson_absences`…) ne sont ni lues ni

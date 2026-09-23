@@ -95,14 +95,28 @@ Le dernier écran propose de reprendre au début ou d'ouvrir un vrai ticket. Les
 
 ### Palmarès
 
-Le menu « Palmarès » (`/badges`) transforme les semaines déjà chargées en quinze badges :
-« Survivant du 8h » (cinq séances qui commencent à 8h00 ou avant), « Zéro vendredi » (une semaine
-entière sans cours le vendredi), « Marathon 10h » (une journée de dix heures entre le premier et le
-dernier cours), « Trou noir », « Grand chelem », « Tour du propriétaire », « Centurion »…
+Le menu « Palmarès » (`/badges`) transforme les semaines déjà chargées en vingt-six badges.
+Les accessibles : « Survivant du 8h » (cinq séances qui commencent à 8h00 ou avant), « Zéro
+vendredi » (une semaine entière sans cours le vendredi), « Marathon 10h » (une journée de dix heures
+entre le premier et le dernier cours), « Trou noir », « Grand chelem », « Tour du propriétaire »,
+« Centurion »…
+
+Les difficiles, qui demandent une semaine vraiment mal tombée : « Semaine de quarante heures »,
+« Amplitude douze heures », « Bloc de six heures », « Du matin au soir » (commencer à 8h00 *et*
+finir après 18h30 le même jour), « Trou abyssal » (cinq heures de trou), « Semaine sans
+interstice » (quatre jours sans un seul trou de plus de quinze minutes), « Cours le week-end »,
+« Le défilé » (cinq intervenants dans la journée), « Cadastre complet » (vingt salles),
+« Bicentenaire » (deux cents heures).
+
+Et le dernier, **« L'intégrale »** : tous les autres, sans exception. C'est le seul badge qui ne se
+lit pas sur une donnée — il compte le mur derrière lui (`COMPLETION_ID`, réglé en second passage
+dans `evaluate()` une fois les vingt-cinq autres tranchés), il est exclu du « plus proche du but »
+puisqu'il n'est l'objectif de rien en particulier, et il fait basculer le rang sur « Intégraliste ».
 
 Un badge obtenu affiche sa ligne, un badge à décrocher affiche sa règle et sa progression
-(`7 / 10`, `98h00 / 100h00`) ; les plus proches du but passent en tête. Le nombre de badges donne un
-rang, de « Fantôme du bâtiment B » à « Légende de l'émargement ».
+(`7 / 20`, `98h40 / 200h00`) ; les plus proches du but passent en tête. Le nombre de badges donne un
+rang, de « Fantôme du bâtiment B » à « Intégraliste », le dernier échelon étant calculé sur le
+nombre de badges existants — en ajouter un déplace la marche au lieu de la rendre inatteignable.
 
 On y arrive par le menu, ou par « Voir mon palmarès » en haut du tableau de bord d'audience.
 

@@ -115,6 +115,16 @@ def facts(db, username: str) -> dict:
         if code:
             ue_codes.add(code)
 
+    # A week with no interstice at all: at least four days of class, and not one of them with a
+    # hole longer than the standard break. Rare on purpose — it needs a whole week to cooperate.
+    gapless_weeks = 0
+    for week in weeks.values():
+        week_days = {}
+        for lesson in week:
+            week_days.setdefault(lesson["date"], []).append(lesson)
+        if len(week_days) >= 4 and all(_longest_gap(day) <= CONTINUATION_GAP for day in week_days.values()):
+            gapless_weeks += 1
+
     top_teacher = max(teacher_minutes.items(), key=lambda kv: kv[1], default=("", 0))
     weeks_loaded = db.execute(
         "SELECT count(*) FROM events_cache_meta WHERE owner_username=?", (username,)).fetchone()[0]
@@ -134,6 +144,13 @@ def facts(db, username: str) -> dict:
         "max_block": max((_longest_block(day) for day in days.values()), default=0),
         "max_gap": max((_longest_gap(day) for day in days.values()), default=0),
         "rooms": len({room for e in lessons for room in e["rooms"]}),
+        "long_days": sum(1 for day in days.values()
+                         if min(e["start"] for e in day) <= EARLY_START
+                         and max(e["end"] for e in day) >= LATE_END),
+        "weekend_sessions": sum(1 for e in lessons if _weekday(e) >= 5),
+        "gapless_weeks": gapless_weeks,
+        "max_day_teachers": max((len({t for e in day for t in e["teachers"]}) for day in days.values()),
+                                default=0),
         "top_teacher": top_teacher[0],
         "top_teacher_minutes": top_teacher[1],
         "ue_codes": len(ue_codes),
@@ -207,7 +224,58 @@ DEFINITIONS = [
      "8 semaines chargées depuis PASS.",
      "Vous consultez l'avenir. Il ressemble beaucoup au présent.",
      "weeks_loaded", 8, "count"),
+
+    # ---- the hard half: each one asks for a week that went genuinely badly ----
+    ("quarante", "Semaine de quarante heures", "fr-icon-briefcase-line",
+     "40 heures de cours dans une seule semaine.",
+     "Un temps plein. Sans le salaire, sans les RTT, sans le comité d'entreprise.",
+     "max_week_minutes", 2400, "hours"),
+    ("douze_heures", "Amplitude douze heures", "fr-icon-anticlockwise-line",
+     "Une journée de 12 heures entre le premier et le dernier cours.",
+     "Vous avez vu le bâtiment ouvrir et vous l'avez vu fermer.",
+     "max_day_span", 720, "hours"),
+    ("bloc_six", "Bloc de six heures", "fr-icon-lock-line",
+     "6 heures d'affilée, pauses réglementaires comprises.",
+     "Plus personne ne prend de notes depuis la troisième heure.",
+     "max_block", 360, "hours"),
+    ("matin_soir", "Du matin au soir", "fr-icon-sun-line",
+     "Une journée qui commence à 8h00 au plus tard et finit à 18h30 au plus tôt.",
+     "Le jour s'est levé sans vous et couché sans vous.",
+     "long_days", 1, "count"),
+    ("abysse", "Trou abyssal", "fr-icon-arrow-down-circle-line",
+     "5 heures de trou dans une même journée.",
+     "Une demi-journée de liberté, soigneusement emmurée entre deux cours.",
+     "max_gap", 300, "hours"),
+    ("sans_trou", "Semaine sans interstice", "fr-icon-align-justify",
+     "Une semaine d'au moins 4 jours sans un seul trou de plus de 15 minutes.",
+     "Pas une faille dans l'emploi du temps. Le planning parfait, dans le mauvais sens.",
+     "gapless_weeks", 1, "count"),
+    ("weekend", "Cours le week-end", "fr-icon-calendar-event-line",
+     "Une séance un samedi ou un dimanche.",
+     "Quelqu'un, quelque part, a validé ça dans un planning. Et l'a trouvé normal.",
+     "weekend_sessions", 1, "count"),
+    ("defile", "Le défilé", "fr-icon-team-line",
+     "5 intervenants différents dans la même journée.",
+     "Cinq personnes vous ont expliqué quelque chose. Vous en avez retenu deux.",
+     "max_day_teachers", 5, "count"),
+    ("cadastre", "Cadastre complet", "fr-icon-building-line",
+     "20 salles différentes fréquentées.",
+     "Il ne vous manque plus que la salle des serveurs et le local à vélos.",
+     "rooms", 20, "count"),
+    ("bicentenaire", "Bicentenaire", "fr-icon-medal-line",
+     "200 heures de cours cumulées.",
+     "Deux cents heures. On ne compte plus, on constate.",
+     "total_minutes", 12000, "hours"),
+
+    # Last on purpose, and last in every sense: its own count is the wall behind it.
+    ("integrale", "L'intégrale", "fr-icon-trophy-line",
+     "Tous les autres succès, sans exception.",
+     "Il n'y a plus rien à décrocher. C'était précisément le problème.",
+     "", 0, "count"),
 ]
+
+# The one badge that isn't read off a fact: it counts the others (see evaluate).
+COMPLETION_ID = "integrale"
 
 # Badges that measure how much the app is used rather than how the week went — kept on the wall,
 # left out of the score the TAF ranking compares, which would otherwise reward opening the site.
@@ -229,10 +297,12 @@ RARITY_TIERS = [
 RANKS = [
     (0, "Fantôme du bâtiment B", "Aucun badge. Techniquement, vous n'avez jamais existé."),
     (1, "Présence remarquée", "On vous a vu. Une fois. C'est un début."),
-    (4, "Habitué", "Votre badge d'accès commence à être usé."),
-    (7, "Pilier de l'amphi", "Une place attitrée, au troisième rang."),
-    (10, "Référence locale", "Les nouveaux vous demandent où est la salle."),
-    (13, "Légende de l'émargement", "Votre feuille est affichée au mur de la scolarité."),
+    (5, "Habitué", "Votre badge d'accès commence à être usé."),
+    (10, "Pilier de l'amphi", "Une place attitrée, au troisième rang."),
+    (15, "Référence locale", "Les nouveaux vous demandent où est la salle."),
+    (20, "Légende de l'émargement", "Votre feuille est affichée au mur de la scolarité."),
+    # Computed, so adding a badge moves the last rung instead of leaving it unreachable.
+    (len(DEFINITIONS), "Intégraliste", "Vous avez tout. Y compris le badge qui dit que vous avez tout."),
 ]
 
 
@@ -248,26 +318,33 @@ def featured_id(db, username: str) -> str:
     return row["featured_badge"] if row else ""
 
 
+def _badge(definition: tuple, value: int, target: int, pinned: str) -> dict:
+    badge_id, title, icon, rule, flavour, _key, _target, fmt = definition
+    return {
+        "id": badge_id, "title": title, "icon": icon, "rule": rule, "flavour": flavour,
+        "earned": value >= target, "featured": badge_id == pinned,
+        "value": value, "target": target,
+        "progress": min(100, round(100 * value / target)) if target else 0,
+        "progress_label": _progress_label(value, target, fmt),
+    }
+
+
 def evaluate(db, username: str) -> dict:
     """The badge wall: every definition with its state, plus the rank and the near miss."""
     data = facts(db, username)
     pinned = featured_id(db, username)
-    badges = []
-    for badge_id, title, icon, rule, flavour, key, target, fmt in DEFINITIONS:
-        value = data[key]
-        badges.append({
-            "id": badge_id, "title": title, "icon": icon, "rule": rule, "flavour": flavour,
-            "earned": value >= target, "featured": badge_id == pinned,
-            "value": value, "target": target,
-            "progress": min(100, round(100 * value / target)) if target else 0,
-            "progress_label": _progress_label(value, target, fmt),
-        })
+    # Two passes: COMPLETION_ID has no fact of its own — what it measures is the wall itself,
+    # so it can only be settled once every other badge has been.
+    badges = [_badge(d, data[d[5]], d[6], pinned) for d in DEFINITIONS if d[0] != COMPLETION_ID]
+    badges.append(_badge(next(d for d in DEFINITIONS if d[0] == COMPLETION_ID),
+                         sum(1 for b in badges if b["earned"]), len(DEFINITIONS) - 1, pinned))
     # Earned first: a wall that opens on what you got reads better than one that opens on
     # what you missed. Within each half, the closest to done comes first.
     badges.sort(key=lambda b: (not b["earned"], -b["progress"], b["title"]))
     earned = sum(1 for b in badges if b["earned"])
     rank = [r for r in RANKS if earned >= r[0]][-1]
-    next_up = next((b for b in badges if not b["earned"] and b["progress"]), None)
+    next_up = next((b for b in badges
+                    if not b["earned"] and b["progress"] and b["id"] != COMPLETION_ID), None)
 
     return {
         "badges": badges,

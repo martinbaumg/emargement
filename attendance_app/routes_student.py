@@ -865,6 +865,7 @@ def profile():
                 <select class="fr-select" id="campus" name="campus">
                     <option value="BREST" {{ 'selected' if p.campus == 'BREST' else '' }}>BREST</option>
                     <option value="RENNES" {{ 'selected' if p.campus == 'RENNES' else '' }}>RENNES</option>
+                    <option value="NANTES" {{ 'selected' if p.campus == 'NANTES' else '' }}>NANTES</option>
                 </select>
             </div>
             <div class="fr-input-group">

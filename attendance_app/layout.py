@@ -1,5 +1,6 @@
 """Shared page chrome (DSFR layout), the render() wrapper, and the flash-message helper."""
 import colorsys
+import datetime
 import functools
 import os
 import re
@@ -16,6 +17,9 @@ from roles import is_admin
 # one more party that sees every request (IP, timing). Bump the vendored tree in
 # static/dsfr/ to upgrade.
 DSFR_VERSION = "1.15.3"
+DONATION_URL = "https://paypal.me/martinbgtr"
+# The donation modal opens by itself after a login at most this often (see _show_donation).
+DONATION_INTERVAL_DAYS = 30
 DSFR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "dsfr")
 
 # « Je suis FIP » (profile switch): every DSFR blue becomes a shade of this pink.
@@ -239,7 +243,7 @@ tr.att-excluded td:not(.att-pdf-col){color:var(--text-mention-grey)}
    overridden, but with the exact size of .fr-footer__bottom-link (.75rem/1.25rem) — plain
    `font:inherit` took the body's 1rem and left it visibly bigger than its neighbours.
    Colour is left to the DSFR class on the same element. */
-button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;
+button.att-guide-link,button.att-donation-link{background:none;border:0;padding:0;cursor:pointer;
   font-family:inherit;font-size:.75rem;line-height:1.25rem;text-align:left}
 
 /* Footer without a brand block: DSFR sizes .fr-footer__content for a logo on its left
@@ -574,6 +578,38 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;
     </div>
   </div>
 </dialog>
+{# Donation modal: opened at load right after a login (show_donation, at most every
+   DONATION_INTERVAL_DAYS), and any time from the footer « Soutenir le projet » button.
+   « J'ai déjà donné » posts to donation_dismiss so it stops opening by itself. #}
+<dialog id="att-donation" class="fr-modal" role="dialog" aria-labelledby="att-donation-title"
+  data-dismiss="{{ url_for('donation_dismiss') }}" data-csrf="{{ csrf_token }}">
+  <div class="fr-container fr-container--fluid fr-container-md">
+    <div class="fr-grid-row fr-grid-row--center">
+      <div class="fr-col-12 fr-col-md-8 fr-col-lg-6">
+        <div class="fr-modal__body">
+          <div class="fr-modal__header">
+            <button type="button" class="fr-btn--close fr-btn" title="Fermer" aria-controls="att-donation">Fermer</button>
+          </div>
+          <div class="fr-modal__content">
+            <h1 id="att-donation-title" class="fr-modal__title">Soutenir Émargement</h1>
+            <p>Émargement est gratuit, sans publicité, et développé sur mon temps libre. Le serveur,
+            le nom de domaine et la maintenance ont un coût&nbsp;: si l'outil vous fait gagner du temps,
+            un petit don aide à payer l'hébergement et à le garder en ligne.</p>
+            <p class="fr-text--sm fr-mb-0">Le don se fait sur PayPal, du montant de votre choix. Aucune obligation&nbsp;:
+            l'outil reste entièrement gratuit.</p>
+          </div>
+          <div class="fr-modal__footer">
+            <ul class="fr-btns-group fr-btns-group--right fr-btns-group--inline-reverse fr-btns-group--inline-lg fr-btns-group--icon-left">
+              <li><a class="fr-btn fr-icon-heart-line" href="{{ donation_url }}" target="_blank" rel="noopener noreferrer external">Faire un don</a></li>
+              <li><button type="button" class="fr-btn fr-btn--secondary" aria-controls="att-donation">Plus tard</button></li>
+              <li><button type="button" class="fr-btn fr-btn--tertiary" aria-controls="att-donation" id="att-donation-done">J'ai déjà donné</button></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
 {% endif %}
 <footer class="fr-footer att-footer" role="contentinfo">
   <div class="fr-container">
@@ -599,6 +635,10 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;
         <li class="fr-footer__bottom-item">
           <button type="button" class="fr-footer__bottom-link att-guide-link" aria-controls="att-guide"
             data-fr-opened="{{ 'true' if show_guide else 'false' }}">Guide d'utilisation</button>
+        </li>
+        <li class="fr-footer__bottom-item">
+          <button type="button" class="fr-footer__bottom-link att-donation-link" aria-controls="att-donation"
+            data-fr-opened="{{ 'true' if show_donation else 'false' }}">Soutenir le projet</button>
         </li>
         {% endif %}
         <li class="fr-footer__bottom-item">
@@ -682,6 +722,17 @@ button.att-guide-link{background:none;border:0;padding:0;cursor:pointer;
       body.append("csrf_token", guide.dataset.csrf);
       fetch(guide.dataset.markSeen, {method: "POST", body: body, credentials: "same-origin"});
     }, {once: true});
+  }
+
+  // Donation modal: « J'ai déjà donné » closes it (aria-controls) and records the choice.
+  var donationDone = document.getElementById("att-donation-done");
+  if (donationDone) {
+    donationDone.addEventListener("click", function() {
+      var donation = document.getElementById("att-donation");
+      var body = new FormData();
+      body.append("csrf_token", donation.dataset.csrf);
+      fetch(donation.dataset.dismiss, {method: "POST", body: body, credentials: "same-origin"});
+    });
   }
 
   // The PASS buttons (refresh icon) each start a request lasting several seconds: spin
@@ -787,6 +838,26 @@ def _guide_seen(username: str) -> bool:
         "SELECT 1 FROM guide_seen WHERE owner_username=?", (username,)).fetchone() is not None
 
 
+def _show_donation(username: str) -> bool:
+    """Open the donation modal on the first page after a login? Never on the very first
+    login (the guide opens then), and at most once every DONATION_INTERVAL_DAYS
+    unless the student said they already gave. Showing it here counts as shown."""
+    if not _guide_seen(username):
+        return False
+    db = dbmod.get_db()
+    row = db.execute("SELECT last_shown_at, dismissed FROM donation_prompt WHERE owner_username=?",
+                     (username,)).fetchone()
+    now = datetime.datetime.now()
+    if row and (row["dismissed"] or now - datetime.datetime.fromisoformat(row["last_shown_at"])
+                < datetime.timedelta(days=DONATION_INTERVAL_DAYS)):
+        return False
+    db.execute("INSERT INTO donation_prompt (owner_username, last_shown_at) VALUES (?, ?) "
+               "ON CONFLICT(owner_username) DO UPDATE SET last_shown_at=excluded.last_shown_at",
+               (username, now.isoformat(timespec="seconds")))
+    db.commit()
+    return True
+
+
 def render(body_template, **ctx):
     body = render_template_string(body_template, **ctx)
     username = session.get("username")
@@ -797,12 +868,17 @@ def render(body_template, **ctx):
     logged_in = bool(session.get("token") and username)
     admin = logged_in and is_admin(username)
     # Counted here rather than imported from routes_tickets, which imports this module.
+    show_guide = logged_in and not _guide_seen(username)
+    # Popped on every page, so a login that opened the guide doesn't leave it for the next one.
+    after_login = session.pop("_donation_prompt", False)
+    show_donation = after_login and logged_in and not show_guide and _show_donation(username)
     open_tickets = dbmod.get_db().execute(
         "SELECT count(*) FROM tickets WHERE status != 'traite'").fetchone()[0] if admin else 0
     return render_template_string(LAYOUT, body=body, dsfr_base=dsfr_base, dsfr_css=dsfr_css,
                                   display_name=display_name, logged_in=logged_in,
                                   admin=admin, open_tickets=open_tickets, chat_tree=chat_tree(),
-                                  show_guide=logged_in and not _guide_seen(username),
+                                  show_guide=show_guide, show_donation=show_donation,
+                                  donation_url=DONATION_URL,
                                   weekly_visitors=analytics.weekly_visitors(),
                                   csrf_token=generate_csrf() if logged_in else "")
 

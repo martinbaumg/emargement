@@ -140,6 +140,7 @@ def login():
         session["token"] = token
         session["username"] = username
         session["_flash"] = "Connecté."
+        session["_donation_prompt"] = True
         return redirect(url_for("lessons"))
 
     return render(LOGIN_TEMPLATE, err=None, csrf_token=generate_csrf())
@@ -186,6 +187,21 @@ def guide_seen():
         return "", 400
     db = get_db()
     db.execute("INSERT OR IGNORE INTO guide_seen (owner_username, seen_at) VALUES (?, ?)",
+               (session["username"], datetime.datetime.now().isoformat(timespec="seconds")))
+    db.commit()
+    return "", 204
+
+
+@app.route("/donation/dismiss", methods=["POST"])
+def donation_dismiss():
+    """« J'ai déjà donné » in the donation modal (see layout): it no longer opens by itself."""
+    if not session.get("username"):
+        return "", 401
+    if not check_csrf():
+        return "", 400
+    db = get_db()
+    db.execute("INSERT INTO donation_prompt (owner_username, last_shown_at, dismissed) VALUES (?, ?, 1) "
+               "ON CONFLICT(owner_username) DO UPDATE SET dismissed=1",
                (session["username"], datetime.datetime.now().isoformat(timespec="seconds")))
     db.commit()
     return "", 204

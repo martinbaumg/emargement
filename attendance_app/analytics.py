@@ -20,7 +20,7 @@ import db as dbmod
 
 RETENTION_DAYS = 400
 # Endpoints that aren't a visit: assets, the health probe, and the guide's silent beacon.
-SKIP_ENDPOINTS = {"static", "healthz", "fip_dsfr_stylesheet", "guide_seen"}
+SKIP_ENDPOINTS = {"static", "healthz", "fip_dsfr_stylesheet", "guide_seen", "donation_dismiss"}
 BOT_RE = re.compile(r"bot|crawler|crawl|spider|slurp|curl|wget|python-requests|headless|"
                     r"monitor|uptime|preview|scan|fetcher", re.IGNORECASE)
 # Pages named as the dashboard names them, so the "top pages" table reads in French.

@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS guide_seen (
     owner_username TEXT PRIMARY KEY,
     seen_at TEXT NOT NULL
 );
+-- Donation modal (layout's #att-donation): opened right after a login at most once every
+-- layout.DONATION_INTERVAL_DAYS, never again once the student says they already gave.
+CREATE TABLE IF NOT EXISTS donation_prompt (
+    owner_username TEXT PRIMARY KEY,
+    last_shown_at TEXT NOT NULL,
+    dismissed INTEGER NOT NULL DEFAULT 0
+);
 -- Audience counter (analytics.py): one row per served page, behind the footer's
 -- « visiteurs cette semaine » link and the /kpi dashboard. `visitor` is a random id kept in
 -- the browser's own signed session cookie — no IP, no user agent, no login — so the table

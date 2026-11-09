@@ -29,6 +29,20 @@ def week_fetched(username: str, week_ref: datetime.date | None = None) -> bool:
     ).fetchone() is not None
 
 
+def cached_events(username: str, week_ref: datetime.date | None = None) -> list:
+    """This week's lessons as last pulled from PASS, without talking to PASS."""
+    week_start, week_end = ps.week_bounds(week_ref)
+    return [
+        {"id": r["lesson_id"], "date": r["date"], "time": r["time"], "title": r["title"],
+         "details": json.loads(r["details_json"]), "teachers": json.loads(r["teachers_json"])}
+        for r in dbmod.get_db().execute(
+            "SELECT lesson_id, date, time, title, details_json, teachers_json FROM lessons_cache "
+            "WHERE owner_username=? AND date BETWEEN ? AND ? ORDER BY date, time",
+            (username, week_start, week_end),
+        )
+    ]
+
+
 def fetch_events_cached(s: requests.Session, username: str, force: bool = False,
                         week_ref: datetime.date | None = None) -> list:
     """Serves the local cache; ONLY `force=True` — the "Actualiser depuis PASS" button —
@@ -55,15 +69,7 @@ def fetch_events_cached(s: requests.Session, username: str, force: bool = False,
     ).fetchone() is not None
     bootstrap = not already_fetched and week_start == ps.week_bounds()[0]
     if not force and not bootstrap:
-        return [
-            {"id": r["lesson_id"], "date": r["date"], "time": r["time"], "title": r["title"],
-             "details": json.loads(r["details_json"]), "teachers": json.loads(r["teachers_json"])}
-            for r in db.execute(
-                "SELECT lesson_id, date, time, title, details_json, teachers_json FROM lessons_cache "
-                "WHERE owner_username=? AND date BETWEEN ? AND ? ORDER BY date, time",
-                (username, week_start, week_end),
-            )
-        ]
+        return cached_events(username, week_ref)
 
     # A dead session doesn't reliably surface as an error from the calls below: PASS's
     # menu API and the classic-ASP agenda page can both return 200 with no structural

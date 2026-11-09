@@ -17,9 +17,20 @@ from db import get_db
 from layout import fip_dsfr_css, render
 from lesson_utils import (_time_bounds, merge_contiguous_lessons, merge_ue_suggestions, parse_ue_table,
                           normalized_words, short_teacher_name, teacher_names, ue_code_for, ue_name_from_projet)
-from pass_session import LIVE_SESSIONS, current_pass_session, fetch_events_cached, suggest_ue_codes, week_fetched
+from pass_session import (LIVE_SESSIONS, cached_events, current_pass_session, fetch_events_cached, suggest_ue_codes,
+                          week_fetched)
 
 # ---------------------------------------------------------------- student side
+
+PASS_UNAVAILABLE_MESSAGE = "PASS est momentanément indisponible. Réessayez dans quelques minutes."
+
+
+def _log_pass_unavailable(exc: requests.RequestException) -> None:
+    """Timeouts, HTTP errors and non-JSON answers from PASS. Class name only: the message of
+    a connection error can quote a URL from the SSO flow."""
+    app.logger.warning("PASS unavailable user=%s path=%s: %s", session.get("username"), request.path,
+                       type(exc).__name__)
+
 
 LOGIN_TEMPLATE = """
 <div class="fr-grid-row fr-grid-row--center">
@@ -135,6 +146,9 @@ def login():
             ps.login(s, username, password)
         except RuntimeError as e:
             return render(LOGIN_TEMPLATE, err=str(e), csrf_token=generate_csrf())
+        except requests.RequestException as e:
+            _log_pass_unavailable(e)
+            return render(LOGIN_TEMPLATE, err=PASS_UNAVAILABLE_MESSAGE, csrf_token=generate_csrf())
         token = secrets.token_hex(16)
         LIVE_SESSIONS[token] = s
         session["token"] = token
@@ -248,6 +262,13 @@ def lessons():
         events = fetch_events_cached(s, username, force=force, week_ref=week_ref)
     except RuntimeError:
         return _expire_pass_session()
+    except requests.RequestException as e:
+        # The session may well be fine, so it is kept; the student gets what is already cached.
+        _log_pass_unavailable(e)
+        session["_flash"] = PASS_UNAVAILABLE_MESSAGE
+        if force:
+            return redirect(url_for("lessons", week=week_offset))
+        events = cached_events(username, week_ref)
     if force:
         # Post/redirect/get: a reload of the resulting page must not refresh from PASS again,
         # and the refresh button (layout's attRunThenGo) lands on this plain week URL.
@@ -1043,6 +1064,10 @@ def export_pdf():
         events = fetch_events_cached(s, username, week_ref=week_ref)
     except RuntimeError:
         return _expire_pass_session()
+    except requests.RequestException as e:
+        _log_pass_unavailable(e)
+        session["_flash"] = PASS_UNAVAILABLE_MESSAGE
+        return redirect(url_for("lessons", week=week_offset))
     if not week_fetched(username, week_ref):
         session["_flash"] = ("Cette semaine n'a pas encore été chargée depuis PASS — "
                              "cliquez sur « Actualiser depuis PASS ».")
